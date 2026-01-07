@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Sentiment Analyzer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background: #1a1a2e;
+            color: white;
+            padding: 30px 0;
+            margin-bottom: 30px;
+        }
+
+        header h1 {
+            text-align: center;
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+
+        header p {
+            text-align: center;
+            color: #888;
+        }
+
+        .prices {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .price-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .price-card h3 {
+            font-size: 1rem;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .price-card .value {
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+
+        .price-card .change {
+            font-size: 0.9rem;
+        }
+
+        .change.positive {
+            color: #28a745;
+        }
+
+        .change.negative {
+            color: #dc3545;
+        }
+
+        .config-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .config-card {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .config-card h2 {
+            font-size: 1.2rem;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #007bff;
+        }
+
+        .option-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .option-btn {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            background: white;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+        }
+
+        .option-btn:hover {
+            border-color: #007bff;
+        }
+
+        .option-btn.active {
+            border-color: #007bff;
+            background: #007bff;
+            color: white;
+        }
+
+        .option-btn .title {
+            font-weight: bold;
+            display: block;
+        }
+
+        .option-btn .desc {
+            font-size: 0.8rem;
+            color: #666;
+            margin-top: 3px;
+        }
+
+        .option-btn.active .desc {
+            color: #ccc;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.7rem;
+            margin-left: 5px;
+        }
+
+        .badge.new {
+            background: #28a745;
+            color: white;
+        }
+
+        .badge.labels {
+            background: #ffc107;
+            color: #333;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            margin-top: 15px;
+        }
+
+        select, input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 1rem;
+        }
+
+        .analyze-btn {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 6px;
+            font-size: 1.1rem;
+            cursor: pointer;
+            font-weight: 600;
+            background: linear-gradient(135deg, #007bff, #0056b3);
+            color: white;
+            margin-top: 20px;
+        }
+
+        .analyze-btn:hover {
+            opacity: 0.9;
+        }
+
+        .results {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-top: 30px;
+            display: none;
+        }
+
+        .results h2 {
+            margin-bottom: 20px;
+        }
+
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .result-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        .result-item .label {
+            font-size: 0.85rem;
+            color: #666;
+        }
+
+        .result-item .value {
+            font-size: 1.3rem;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+
+        .accuracy-box {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .accuracy-box.hidden {
+            display: none;
+        }
+
+        .accuracy-box .acc-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #155724;
+        }
+
+        .accuracy-box .acc-label {
+            color: #155724;
+        }
+
+        .posts-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        .posts-table th, .posts-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+
+        .posts-table th {
+            background: #f8f9fa;
+            font-weight: 500;
+        }
+
+        .posts-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .sentiment-Bullish, .sentiment-positive {
+            color: #28a745;
+        }
+
+        .sentiment-Bearish, .sentiment-negative {
+            color: #dc3545;
+        }
+
+        .sentiment-Neutral, .sentiment-neutral {
+            color: #6c757d;
+        }
+
+        .match {
+            background: #d4edda;
+        }
+
+        .mismatch {
+            background: #f8d7da;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+            display: none;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #007bff;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        footer {
+            text-align: center;
+            padding: 30px;
+            color: #888;
+            margin-top: 30px;
+        }
+
+        a {
+            color: #007bff;
+        }
+
+        @media (max-width: 768px) {
+            .config-section {
+                grid-template-columns: 1fr;
+            }
+
+            .results-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+<header>
+    <div class="container">
+        <h1>Crypto Sentiment Analyzer</h1>
+        <p>Projet MoSEF 2024-2025 - Webscraping & NLP | <a href="/docs" style="color: #007bff;">Swagger API</a></p>
+    </div>
+</header>
+
+<div class="container">
+    <!-- Prix -->
+<div class="prices">
+    {% for name, data in prices.items() %}
+<div class="price-card">
+    <h3>{{ name | capitalize }}</h3>
+<div class="value">${{ "{:,.0f}".format(data.price) }}</div>
+    <div class="change {% if data.change_24h > 0 %}positive{% else %}negative{% endif %}">
+        {{ "{:+.2f}".format(data.change_24h) }}% (24h)
+    </div>
+</div>
+    {% endfor %}
+</div>
+
+    <!-- Configuration -->
+    <div class="config-section">
+        <!-- Source -->
+        <div class="config-card">
+            <h2>Source de donnees</h2>
+
+            <div class="option-group" id="source-group">
+                <div class="option-btn active" data-value="reddit">
+                    <span class="title">Reddit</span>
+                    <span class="desc">Max 1000 posts (rapide)</span>
+                </div>
+                <div class="option-btn" data-value="stocktwits">
+                    <span class="title">StockTwits <span class="badge new">NEW</span></span>
+                    <span class="desc">Labels humains! ~10-30s (Selenium)</span>
+                </div>
+            </div>
+
+            <label>Crypto / Symbole</label>
+            <select id="symbol">
+                <option value="Bitcoin" data-stocktwits="BTC.X" data-crypto="bitcoin">Bitcoin (BTC)</option>
+                <option value="ethereum" data-stocktwits="ETH.X" data-crypto="ethereum">Ethereum (ETH)</option>
+                <option value="solana" data-stocktwits="SOL.X" data-crypto="solana">Solana (SOL)</option>
+                <option value="dogecoin" data-stocktwits="DOGE.X" data-crypto="dogecoin">Dogecoin (DOGE)</option>
+                <option value="cardano" data-stocktwits="ADA.X" data-crypto="cardano">Cardano (ADA)</option>
+                <option value="xrp" data-stocktwits="XRP.X" data-crypto="ripple">Ripple (XRP)</option>
+            </select>
+
+            <label>Nombre de posts</label>
+            <input type="number" id="limit" value="50" min="10" max="300">
+        </div>
+
+        <!-- Modele -->
+        <div class="config-card">
+            <h2>Modele NLP</h2>
+
+            <div class="option-group" id="model-group">
+                <div class="option-btn active" data-value="finbert">
+                    <span class="title">FinBERT</span>
+                    <span class="desc">Finance generale</span>
+                </div>
+                <div class="option-btn" data-value="cryptobert">
+                    <span class="title">CryptoBERT <span class="badge new">NEW</span></span>
+                    <span class="desc">3.2M posts crypto</span>
+                </div>
+            </div>
+
+            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; margin-top: 20px;">
+                <h4 style="margin-bottom: 10px;">Comparaison</h4>
+                <p style="font-size: 0.9rem; color: #666; margin-bottom: 10px;">
+                    <strong>FinBERT:</strong> Entraine sur news financieres<br>
+                    <strong>CryptoBERT:</strong> Entraine sur StockTwits, Reddit, Telegram, Twitter
+                </p>
+                <p style="font-size: 0.85rem; color: #888;">
+                    💡 Utilise StockTwits + CryptoBERT pour valider avec les labels humains!
+                </p>
+            </div>
+
+            <button class="analyze-btn" id="analyze-btn">Analyser</button>
+        </div>
+    </div>
+
+    <!-- Loading -->
+    <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <p>Analyse en cours...</p>
+    </div>
+
+    <!-- Resultats -->
+    <div class="results" id="results">
+        <h2>Resultats</h2>
+
+        <!-- Accuracy (StockTwits only) -->
+        <div class="accuracy-box hidden" id="accuracy-box">
+            <div class="acc-label">Accuracy vs labels humains</div>
+            <div class="acc-value" id="accuracy-value">-</div>
+        </div>
+
+        <div class="results-grid">
+            <div class="result-item">
+                <div class="label">Source</div>
+                <div class="value" id="res-source">-</div>
+            </div>
+            <div class="result-item">
+                <div class="label">Modele</div>
+                <div class="value" id="res-model">-</div>
+            </div>
+            <div class="result-item">
+                <div class="label">Posts</div>
+                <div class="value" id="res-posts">-</div>
+            </div>
+            <div class="result-item">
+                <div class="label">Temps</div>
+                <div class="value" id="res-time">-</div>
+            </div>
+        </div>
+
+        <div class="results-grid">
+            <div class="result-item">
+                <div class="label">Sentiment moyen</div>
+                <div class="value" id="res-sentiment">-</div>
+            </div>
+            <div class="result-item">
+                <div class="label sentiment-Bullish">Bullish</div>
+                <div class="value" id="res-bullish">-</div>
+            </div>
+            <div class="result-item">
+                <div class="label sentiment-Bearish">Bearish</div>
+                <div class="value" id="res-bearish">-</div>
+            </div>
+            <div class="result-item">
+                <div class="label sentiment-Neutral">Neutral</div>
+                <div class="value" id="res-neutral">-</div>
+            </div>
+        </div>
+
+        <h3 style="margin-top: 25px; margin-bottom: 15px;">Posts analyses</h3>
+        <table class="posts-table">
+            <thead>
+            <tr>
+                <th>Texte</th>
+                <th>Score</th>
+                <th>Prediction</th>
+                <th>Label humain</th>
+            </tr>
+            </thead>
+            <tbody id="posts-body">
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<footer>
+    <p>Projet Webscraping & NLP - Master 2 MoSEF Data Science - Paris 1 Pantheon-Sorbonne</p>
+</footer>
+
+<script>
+// State
+let selectedSource = 'reddit';
+let selectedModel = 'finbert';
+
+// Option buttons
+document.querySelectorAll('.option-group').forEach(group => {
+    group.querySelectorAll('.option-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            group.querySelectorAll('.option-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            if (group.id === 'source-group') {
+                selectedSource = btn.dataset.value;
+            } else if (group.id === 'model-group') {
+                selectedModel = btn.dataset.value;
+            }
+        });
+    });
+});
+
+// Analyze
+document.getElementById('analyze-btn').addEventListener('click', async () => {
+    const symbolSelect = document.getElementById('symbol');
+    const selectedOption = symbolSelect.options[symbolSelect.selectedIndex];
+    const limit = parseInt(document.getElementById('limit').value);
+
+    // Get symbol based on source
+    let symbol;
+    if (selectedSource === 'stocktwits') {
+        symbol = selectedOption.dataset.stocktwits;
+    } else {
+        symbol = selectedOption.value;
+    }
+
+    const cryptoId = selectedOption.dataset.crypto;
+
+    document.getElementById('loading').style.display = 'block';
+    document.getElementById('results').style.display = 'none';
+
+        try {
+    const response = await fetch('/analyze', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            source: selectedSource,
+            model: selectedModel,
+            crypto_id: cryptoId,
+            symbol: symbol,
+            limit: limit
+        })
+    });
+
+    const data = await response.json();
+
+    // Display results
+    document.getElementById('res-source').textContent = data.source;
+    document.getElementById('res-model').textContent = data.model.toUpperCase();
+    document.getElementById('res-posts').textContent = data.posts_analyzed;
+    document.getElementById('res-time').textContent = data.total_time + 's';
+    document.getElementById('res-sentiment').textContent = data.sentiment.average.toFixed(3);
+    document.getElementById('res-bullish').textContent = data.sentiment.distribution.Bullish || 0;
+    document.getElementById('res-bearish').textContent = data.sentiment.distribution.Bearish || 0;
+    document.getElementById('res-neutral').textContent = data.sentiment.distribution.Neutral || 0;
+
+    // Accuracy
+    const accBox = document.getElementById('accuracy-box');
+    if (data.accuracy_vs_human !== null) {
+        accBox.classList.remove('hidden');
+        document.getElementById('accuracy-value').textContent = data.accuracy_vs_human + '%';
+    } else {
+        accBox.classList.add('hidden');
+    }
+
+    // Posts table
+    const tbody = document.getElementById('posts-body');
+    tbody.innerHTML = '';
+data.posts.forEach(post => {
+    const row = document.createElement('tr');
+    const isMatch = post.human_label && post.predicted_label === post.human_label;
+    const isMismatch = post.human_label && post.predicted_label !== post.human_label;
+
+    if (isMatch) row.classList.add('match');
+    if (isMismatch) row.classList.add('mismatch');
+
+        row.innerHTML = `
+                        <td>${post.title}</td>
+                        <td>${post.score.toFixed(3)}</td>
+                        <td class="sentiment-${post.predicted_label}">${post.predicted_label}</td>
+                        <td>${post.human_label || '-'}</td>
+                    `;
+    tbody.appendChild(row);
+});
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('results').style.display = 'block';
+
+} catch (error) {
+    alert('Erreur: ' + error.message);
+    document.getElementById('loading').style.display = 'none';
+}
+});
+</script>
+</body>
+</html>
