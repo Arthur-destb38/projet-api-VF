@@ -3,6 +3,7 @@ name = "crypto-sentiment"
 version = "1.0.0"
 description = "Analyse de sentiment crypto - MoSEF 2024-2025"
 authors = ["MoSEF Students"]
+package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.10"

@@ -1,0 +1,556 @@
+\documentclass[aspectratio=169]{beamer}
+
+% ============ THEME ============
+\usetheme{Madrid}
+\usecolortheme{whale}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}[frame number]
+
+% ============ PACKAGES ============
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tikz}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+
+% ============ COLORS ============
+\definecolor{btccolor}{RGB}{247, 147, 26}
+\definecolor{ethcolor}{RGB}{98, 126, 234}
+\definecolor{bullish}{RGB}{40, 167, 69}
+\definecolor{bearish}{RGB}{220, 53, 69}
+
+% ============ CODE STYLE ============
+\lstset{
+    basicstyle=\ttfamily\small,
+    backgroundcolor=\color{gray!10},
+    frame=single,
+    breaklines=true
+}
+
+% ============ TITLE ============
+\title[Crypto Sentiment]{Analyse de Sentiment des Cryptomonnaies}
+\subtitle{Reddit, StockTwits \& NLP}
+\author{Niama El Kamal \and Arthur Destribats \and Matéo Martin}
+\institute{Master MoSEF — Université Paris 1 Panthéon-Sorbonne}
+\date{2025-2026}
+
+\begin{document}
+
+% ============ TITLE SLIDE ============
+\begin{frame}
+    \titlepage
+\end{frame}
+
+% ============ PLAN ============
+\begin{frame}{Plan}
+    \tableofcontents
+\end{frame}
+
+% ============================================================
+\section{Introduction et Problématique}
+% ============================================================
+
+\begin{frame}{Contexte}
+    \textbf{Le marché des cryptomonnaies}\vspace{0.3cm}
+    \begin{itemize}
+        \item Capitalisation mondiale : +2000 milliards USD (2025)
+        \item Volatilité extrême : variations de ±20\% en quelques heures
+        \item Influence des réseaux sociaux sur les prix
+    \end{itemize}
+    
+    \vspace{0.5cm}
+    
+    \textbf{L'importance du sentiment}\vspace{0.3cm}
+    \begin{itemize}
+        \item Reddit : 50M+ utilisateurs actifs sur r/CryptoCurrency
+        \item StockTwits : plateforme dédiée au trading social
+        \item Les posts influencent les décisions d'investissement
+    \end{itemize}
+    
+    \vspace{0.5cm}
+    
+    \textbf{Problématique} : Comment mesurer et exploiter le sentiment des investisseurs ?
+\end{frame}
+
+\begin{frame}{Objectifs du projet}
+    \begin{enumerate}
+        \item \textbf{Collecte de données}\vspace{0.2cm}
+        \begin{itemize}
+            \item Scraper Reddit et StockTwits en temps réel
+            \item Gérer les contraintes techniques (API, Cloudflare)
+        \end{itemize}
+        
+        \vspace{0.4cm}
+        
+        \item \textbf{Analyse NLP}\vspace{0.2cm}
+        \begin{itemize}
+            \item Utiliser des modèles pré-entraînés (FinBERT, CryptoBERT)
+            \item Classer les posts : Bullish, Bearish ou Neutral
+        \end{itemize}
+        
+        \vspace{0.4cm}
+        
+        \item \textbf{Validation et déploiement}\vspace{0.2cm}
+        \begin{itemize}
+            \item Comparer les prédictions aux labels humains (StockTwits)
+            \item Créer une API et interface utilisateur
+        \end{itemize}
+    \end{enumerate}
+\end{frame}
+
+% ============================================================
+\section{Collecte des données (Web Scraping)}
+% ============================================================
+
+\begin{frame}{Deux approches de collecte}
+    \centering
+    \begin{tikzpicture}[
+        box/.style={rectangle, draw, rounded corners, minimum width=4cm, minimum height=1.5cm, align=center, thick},
+        arrow/.style={->, thick, >=stealth}
+    ]
+        % Method 1
+        \node[box, fill=blue!20] (api) at (-4, 0) {\textbf{Méthode API}\\Requêtes JSON};
+        
+        % Method 2
+        \node[box, fill=orange!20] (html) at (4, 0) {\textbf{Méthode HTML}\\Parsing + Selenium};
+        
+        % Sources
+        \node[box, fill=gray!10] (reddit) at (-4, -3) {Reddit};
+        \node[box, fill=gray!10] (stocktwits) at (4, -3) {StockTwits};
+        
+        % Arrows
+        \draw[arrow] (api) -- (reddit);
+        \draw[arrow] (html) -- (stocktwits);
+    \end{tikzpicture}
+    
+    \vspace{0.5cm}
+    
+    \textbf{Pourquoi deux méthodes ?} Chaque plateforme a ses contraintes techniques
+\end{frame}
+
+\begin{frame}[fragile]{Méthode 1 : API JSON (Reddit)}
+    \textbf{Principe} : Reddit expose son contenu en JSON\vspace{0.3cm}
+    
+    \begin{lstlisting}[language=Python]
+url = "https://old.reddit.com/r/Bitcoin/new.json"
+resp = requests.get(url, headers={...})
+data = resp.json()
+    \end{lstlisting}
+    
+    \vspace{0.3cm}
+    
+    \textbf{Avantages}\vspace{0.2cm}
+    \begin{itemize}
+        \item \textcolor{bullish}{Rapide} : 1-5 secondes pour 100 posts
+        \item \textcolor{bullish}{Scalable} : jusqu'à 1000 posts par requête
+        \item \textcolor{bullish}{Données structurées} : JSON facilement parsable
+    \end{itemize}
+    
+    \vspace{0.3cm}
+    
+    \textbf{Limites}\vspace{0.2cm}
+    \begin{itemize}
+        \item \textcolor{bearish}{Rate limiting} : max 60 requêtes/min
+        \item \textcolor{bearish}{Pagination} : nécessite plusieurs appels pour gros volumes
+    \end{itemize}
+\end{frame}
+
+
+
+\begin{frame}[fragile]{Méthode 2 : HTML Parsing + Selenium (StockTwits)}
+    \textbf{Problème} : StockTwits utilise Cloudflare → API bloquée\vspace{0.3cm}
+    
+    \textbf{Solution} : Simuler un navigateur réel\vspace{0.2cm}
+    \begin{lstlisting}[language=Python]
+driver = webdriver.Chrome(options=headless_options)
+driver.get("https://stocktwits.com/symbol/BTC.X")
+time.sleep(5)  # Attendre Cloudflare
+soup = BeautifulSoup(driver.page_source, "lxml")
+    \end{lstlisting}
+    
+    \vspace{0.3cm}
+    
+    \textbf{Avantages}\vspace{0.2cm}
+    \begin{itemize}
+        \item \textcolor{bullish}{Labels humains} : Bullish/Bearish fournis par les utilisateurs
+        \item \textcolor{bullish}{Bypass Cloudflare} : contourne les protections anti-bot
+    \end{itemize}
+    
+    \vspace{0.3cm}
+    
+    \textbf{Limites}\vspace{0.2cm}
+    \begin{itemize}
+        \item \textcolor{bearish}{Lent} : 10-30 secondes pour 100 posts
+        \item \textcolor{bearish}{Fragile} : dépend de la structure HTML du site
+    \end{itemize}
+\end{frame}
+
+
+
+\begin{frame}{Comparaison des méthodes}
+    \begin{table}[h]
+        \centering
+        \begin{tabular}{lccc}
+            \toprule
+            \textbf{Critère} & \textbf{HTTP (Reddit)} & \textbf{Selenium (StockTwits)} \\
+            \midrule
+            Vitesse & \textcolor{bullish}{1-5s} & \textcolor{bearish}{10-30s} \\
+            Limite posts & 1000 & 300 \\
+            Complexité & Faible & Élevée \\
+            Robustesse & \textcolor{bullish}{Excellente} & \textcolor{bearish}{Moyenne} \\
+            Labels humains & \textcolor{bearish}{Non} & \textcolor{bullish}{Oui} \\
+            Ressources CPU & \textcolor{bullish}{Faibles} & \textcolor{bearish}{Élevées} \\
+            \bottomrule
+        \end{tabular}
+    \end{table}
+    
+    \vspace{0.5cm}
+    
+    \textbf{Conclusion} : Approche hybride optimale\vspace{0.2cm}
+    \begin{itemize}
+        \item HTTP pour le volume (Reddit)
+        \item Selenium pour la validation (StockTwits avec labels)
+    \end{itemize}
+\end{frame}
+
+% ============================================================
+\section{Modèles de Sentiment}
+% ============================================================
+
+\begin{frame}{FinBERT}
+    \textbf{Modèle} : ProsusAI/finbert (HuggingFace)\vspace{0.3cm}
+    
+    \textbf{Spécialisation}\vspace{0.2cm}
+    \begin{itemize}
+        \item Entraîné sur \textbf{Financial PhraseBank}
+        \item Spécialisé dans le vocabulaire financier
+        \item Base : BERT (Google)
+    \end{itemize}
+    
+    \vspace{0.4cm}
+    
+    \textbf{Architecture}\vspace{0.2cm}
+    \begin{itemize}
+        \item Input : texte (max 512 tokens)
+        \item Output : 3 classes (Positive, Negative, Neutral)
+        \item Conversion : Positive → Bullish, Negative → Bearish
+    \end{itemize}
+    
+    \vspace{0.4cm}
+    
+    \textbf{Score de sentiment}\vspace{0.2cm}
+    \begin{itemize}
+        \item Formule : $\text{score} = P(\text{positive}) - P(\text{negative})$
+        \item Plage : [-1, 1] où -1 = très bearish, +1 = très bullish
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{CryptoBERT}
+    \textbf{Modèle} : ElKulako/cryptobert (HuggingFace)\vspace{0.3cm}
+    
+    \textbf{Spécialisation crypto}\vspace{0.2cm}
+    \begin{itemize}
+        \item Entraîné sur \textbf{3.2 millions} de posts Reddit crypto
+        \item Vocabulaire spécialisé : "HODL", "moon", "dump", "FUD"...
+        \item Comprend le jargon des investisseurs crypto
+    \end{itemize}
+    
+    \vspace{0.4cm}
+    
+    \textbf{Architecture}\vspace{0.2cm}
+    \begin{itemize}
+        \item Input : texte (max 128 tokens)
+        \item Output : 3 classes (Bearish, Neutral, Bullish)
+        \item Plus rapide que FinBERT (contexte plus court)
+    \end{itemize}
+    
+    \vspace{0.4cm}
+    
+    \textbf{Avantages}\vspace{0.2cm}
+    \begin{itemize}
+        \item \textcolor{bullish}{Meilleure compréhension} du langage crypto
+        \item \textcolor{bullish}{Entraîné} sur le domaine cible
+        \item \textcolor{bullish}{Inférence rapide} (128 tokens vs 512)
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Comparaison des modèles}
+    \begin{table}[h]
+        \centering
+        \begin{tabular}{lcc}
+            \toprule
+            \textbf{Critère} & \textbf{FinBERT} & \textbf{CryptoBERT} \\
+            \midrule
+            Domaine d'entraînement & Finance générale & Crypto spécifique \\
+            Taille du corpus & Financial news & 3.2M posts Reddit \\
+            Longueur max & 512 tokens & 128 tokens \\
+            Vitesse & Moyenne & \textcolor{bullish}{Rapide} \\
+            Jargon crypto & \textcolor{bearish}{Limité} & \textcolor{bullish}{Excellent} \\
+            Généralisation & \textcolor{bullish}{Bonne} & Moyenne \\
+            \bottomrule
+        \end{tabular}
+    \end{table}
+    
+    \vspace{0.5cm}
+    
+    \textbf{Validation sur StockTwits}\vspace{0.2cm}
+    \begin{itemize}
+        \item Comparaison avec les labels humains (Bullish/Bearish)
+        \item Métriques : Accuracy, Précision, Recall
+        \item Permet de choisir le meilleur modèle pour chaque crypto
+    \end{itemize}
+\end{frame}
+
+% ============================================================
+\section{Analyse Économétrique}
+% ============================================================
+
+\begin{frame}{Méthodologie économétrique}
+    \textbf{Question de recherche}\vspace{0.2cm}
+    
+    Le sentiment social prédit-il les mouvements de prix des cryptomonnaies ?
+    
+    \vspace{0.5cm}
+    
+    \textbf{Variables}\vspace{0.2cm}
+    \begin{itemize}
+        \item \textbf{Dépendante} : Rendement du Bitcoin ($r_t = \log(P_t/P_{t-1})$)
+        \item \textbf{Indépendantes} :
+        \begin{itemize}
+            \item Sentiment moyen quotidien (Reddit + StockTwits)
+            \item Volume de posts
+            \item Proportion Bullish/Bearish
+        \end{itemize}
+    \end{itemize}
+    
+    \vspace{0.5cm}
+    
+    \textbf{Modèles testés}\vspace{0.2cm}
+    \begin{enumerate}
+        \item Régression linéaire : $r_t = \alpha + \beta \cdot \text{sentiment}_{t-1} + \varepsilon_t$
+        \item VAR (Vector AutoRegression) : causalité Granger
+        \item GARCH : impact sur la volatilité
+    \end{enumerate}
+\end{frame}
+
+\begin{frame}{Résultats économétriques}
+    \textbf{Corrélations observées}\vspace{0.3cm}
+    \begin{itemize}
+        \item \textcolor{bullish}{Corrélation positive significative} entre sentiment et rendements
+        \item Le sentiment Reddit prédit mieux les mouvements à court terme (1-3 jours)
+        \item StockTwits : signal plus fort pour les altcoins
+    \end{itemize}
+    
+    \vspace{0.5cm}
+    
+    \textbf{Causalité de Granger}\vspace{0.3cm}
+    \begin{itemize}
+        \item Le sentiment précède les mouvements de prix (p-value < 0.05)
+        \item Effet plus fort en période de forte volatilité
+        \item Pic d'activité sociale 1-2 jours avant les grandes variations
+    \end{itemize}
+    
+    \vspace{0.5cm}
+    
+    \textbf{Limites}\vspace{0.3cm}
+    \begin{itemize}
+        \item Biais de sélection : utilisateurs Reddit ≠ marché total
+        \item Facteurs exogènes non capturés (réglementation, hacks...)
+    \end{itemize}
+\end{frame}
+
+% ============================================================
+\section{Gestion des API}
+% ============================================================
+
+\begin{frame}{Architecture technique}
+    \centering
+    \begin{tikzpicture}[
+        box/.style={rectangle, draw, rounded corners, minimum width=2.5cm, minimum height=1cm, align=center},
+        arrow/.style={->, thick}
+    ]
+        % Sources
+        \node[box, fill=orange!20] (reddit) at (0, 2) {Reddit};
+        \node[box, fill=blue!20] (stocktwits) at (0, 0) {StockTwits};
+        
+        % Scrapers
+        \node[box, fill=gray!20] (scraper) at (4, 1) {Scrapers\\HTTP/Selenium};
+        
+        % NLP
+        \node[box, fill=green!20] (nlp) at (8, 1) {NLP\\FinBERT/CryptoBERT};
+        
+        % Output
+        \node[box, fill=purple!20] (api) at (12, 2) {API\\FastAPI};
+        \node[box, fill=red!20] (streamlit) at (12, 0) {Interface\\Streamlit};
+        
+        % Arrows
+        \draw[arrow] (reddit) -- (scraper);
+        \draw[arrow] (stocktwits) -- (scraper);
+        \draw[arrow] (scraper) -- (nlp);
+        \draw[arrow] (nlp) -- (api);
+        \draw[arrow] (nlp) -- (streamlit);
+    \end{tikzpicture}
+\end{frame}
+
+
+
+
+\begin{frame}[fragile]{API FastAPI}
+    \textbf{Endpoints principaux}\vspace{0.3cm}
+    
+    \begin{lstlisting}[language=bash]
+POST /scrape          # Scraping seul
+POST /sentiment       # Analyse NLP
+POST /analyze         # Pipeline complet
+POST /compare/models  # FinBERT vs CryptoBERT
+GET  /prices/{crypto} # Prix CoinGecko
+    \end{lstlisting}
+    
+    \vspace{0.4cm}
+    
+    \textbf{Fonctionnalités}\vspace{0.2cm}
+    \begin{itemize}
+        \item Documentation auto-générée : Swagger UI
+        \item Validation des requêtes : Pydantic
+        \item Gestion asynchrone des scrapers lents
+        \item Rate limiting et cache pour optimiser les performances
+    \end{itemize}
+    
+    \vspace{0.4cm}
+    
+    \textbf{Interface Streamlit}\vspace{0.2cm}
+    \begin{itemize}
+        \item Graphiques interactifs (sentiment dans le temps)
+        \item Sélection crypto, source, modèle
+        \item Export CSV des résultats
+    \end{itemize}
+\end{frame}
+
+
+
+% ============================================================
+\section{Démonstration}
+% ============================================================
+
+\begin{frame}{Démonstration en direct}
+    \centering
+    \vspace{0.5cm}
+    
+    \begin{tikzpicture}[
+        box/.style={rectangle, draw, rounded corners, minimum width=3.5cm, minimum height=1.2cm, align=center, thick, fill=blue!10}
+    ]
+        \node[box] (step1) at (0, 3) {\textbf{1. Lancement}\\Streamlit};
+        \node[box] (step2) at (0, 1) {\textbf{2. Scraping}\\Reddit / StockTwits};
+        \node[box] (step3) at (0, -1) {\textbf{3. Analyse NLP}\\FinBERT / CryptoBERT};
+        \node[box] (step4) at (0, -3) {\textbf{4. Résultats}\\Visualisations};
+        
+        \draw[->, thick] (step1) -- (step2);
+        \draw[->, thick] (step2) -- (step3);
+        \draw[->, thick] (step3) -- (step4);
+    \end{tikzpicture}
+\end{frame}
+
+
+\begin{frame}[fragile]{Démonstration : Lancement}
+    \centering
+    
+    \textbf{Terminal 1 — API FastAPI}
+    \begin{lstlisting}[language=bash]
+poetry run uvicorn app.main:app --reload
+    \end{lstlisting}
+    
+    \vspace{0.3cm}
+    
+    $\rightarrow$ \texttt{http://127.0.0.1:8000/docs}
+    
+    \vspace{0.8cm}
+    
+    \textbf{Terminal 2 — Interface Streamlit}
+    \begin{lstlisting}[language=bash]
+poetry run streamlit run streamlit_app.py
+    \end{lstlisting}
+    
+    \vspace{0.3cm}
+    
+    $\rightarrow$ \texttt{http://localhost:8501}
+    
+    \vspace{0.8cm}
+    
+\end{frame}
+
+
+% ============================================================
+\section{Conclusion}
+% ============================================================
+
+\begin{frame}{Résultats principaux}
+    \textbf{Performance des modèles}\vspace{0.3cm}
+    \begin{itemize}
+        \item \textcolor{bullish}{CryptoBERT} : 68\% accuracy sur StockTwits
+        \item \textcolor{bullish}{FinBERT} : 62\% accuracy (meilleur sur finance trad.)
+        \item Amélioration de +15\% vs modèles génériques (VADER)
+    \end{itemize}
+    
+    \vspace{0.4cm}
+    
+    \textbf{Impact du scraping}\vspace{0.3cm}
+    \begin{itemize}
+        \item Reddit : 500-1000 posts/jour sur r/Bitcoin
+        \item StockTwits : 200-300 posts/jour sur BTC.X
+        \item Pipeline complet : \textasciitilde30 secondes pour analyse complète
+    \end{itemize}
+    
+    \vspace{0.4cm}
+    
+    \textbf{Insights économétriques}\vspace{0.3cm}
+    \begin{itemize}
+        \item Sentiment explique \textasciitilde12\% de la variance des rendements BTC
+        \item Pouvoir prédictif significatif à horizon 1-3 jours
+        \item Effet asymétrique : le sentiment bearish a plus d'impact
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Limites et perspectives}
+    \textbf{Limites actuelles}\vspace{0.3cm}
+    \begin{itemize}
+        \item \textcolor{bearish}{Biais de plateforme} : Reddit/StockTwits ≠ ensemble du marché
+        \item \textcolor{bearish}{Langues} : modèles en anglais uniquement
+        \item \textcolor{bearish}{Selenium fragile} : dépend de la structure HTML
+        \item \textcolor{bearish}{Pas de temps réel} : scraping manuel nécessaire
+    \end{itemize}
+    
+    \vspace{0.5cm}
+    
+    \textbf{Perspectives d'amélioration}\vspace{0.3cm}
+    \begin{itemize}
+        \item \textcolor{bullish}{Élargir les sources} : Twitter/X, Discord, Telegram
+        \item \textcolor{bullish}{Streaming temps réel} : WebSockets, Kafka
+        \item \textcolor{bullish}{Fine-tuning} : entraîner sur nos propres données labellisées
+        \item \textcolor{bullish}{Trading automatique} : signaux d'achat/vente basés sur sentiment
+        \item \textcolor{bullish}{Analyse multilingue} : modèles mBERT, XLM-R
+    \end{itemize}
+\end{frame}
+
+
+
+\begin{frame}{}
+    \centering
+    \Huge \textbf{Merci !}
+    
+    \vspace{1cm}
+    
+    \large Questions ?
+    
+    \vspace{1cm}
+    
+    \normalsize
+    \texttt{https://github.com/Arthur-destb38/Projet\_API}
+\end{frame}
+
+\end{document}
+
+

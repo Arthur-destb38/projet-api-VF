@@ -290,7 +290,15 @@ def page_dashboard():
                 with cols[i]:
                     change = data.get('change_24h', 0)
                     delta_type = "positive" if change > 0 else "negative"
-                    render_metric_card(name.upper(), f"${data['price']:,.0f}", f"{change:+.2f}%", delta_type)
+                    # Format prix selon la valeur
+                    price = data['price']
+                    if price >= 1000:
+                        price_str = f"${price:,.0f}"
+                    elif price >= 1:
+                        price_str = f"${price:,.2f}"
+                    else:
+                        price_str = f"${price:.4f}"
+                    render_metric_card(name.upper(), price_str, f"{change:+.2f}%", delta_type)
     except:
         st.info("Prix non disponibles")
     
@@ -320,7 +328,7 @@ def page_dashboard():
             """, unsafe_allow_html=True)
         
         model = st.radio("Modèle NLP", ["FinBERT", "CryptoBERT"], horizontal=True, key="dash_model")
-        limit = st.slider("Nombre de posts", 20, min(300, max_limit), 50, key="dash_limit")
+        limit = st.slider("Nombre de posts", 20, max_limit, min(50, max_limit), key="dash_limit")
         
         st.markdown(f"""
         <div class="info-box">
@@ -495,7 +503,7 @@ def page_compare():
             method = "Selenium"
             max_limit = LIMITS["StockTwits"]["Selenium"]
         
-        limit = st.slider("Posts", 30, min(150, max_limit), 50, key="cmp_limit")
+        limit = st.slider("Posts", 20, max_limit, min(50, max_limit), key="cmp_limit")
         run = st.button("Comparer", use_container_width=True, key="cmp_run")
     
     with col2:
@@ -576,7 +584,7 @@ def page_compare():
 
 def page_multi():
     render_header()
-    st.markdown("### Analyse Multi-Crypto")
+    st.markdown("### Analyse Multi-Crypto Comparative")
     
     col1, col2 = st.columns([1, 3])
     
@@ -588,11 +596,36 @@ def page_multi():
         
         if source == "Reddit":
             method = st.radio("Méthode", ["HTTP", "Selenium"], key="multi_method")
+            max_limit = LIMITS["Reddit"][method]
         else:
             method = "Selenium"
+            max_limit = LIMITS["StockTwits"]["Selenium"]
         
         model = st.radio("Modèle", ["FinBERT", "CryptoBERT"], key="multi_model")
-        limit = st.slider("Posts/crypto", 20, 100, 40, key="multi_limit")
+        
+        # Limite adaptée au nombre de cryptos (éviter les bans)
+        nb_cryptos = len(selected) if selected else 1
+        safe_limit = min(max_limit, max(20, 200 // nb_cryptos))  # Répartir pour éviter ban
+        
+        limit = st.slider("Posts/crypto", 20, max_limit, safe_limit, key="multi_limit")
+        
+        # Warning si risque de ban
+        total_posts = limit * nb_cryptos
+        st.markdown(f"""
+        <div class="info-box">
+            <strong>Total estimé:</strong> {total_posts} posts<br>
+            <small>Limite {source}: {max_limit}/crypto</small>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if total_posts > 500:
+            st.markdown("""
+            <div class="warning-box">
+                <strong>Attention</strong><br>
+                <small>Beaucoup de posts = risque de ban. Réduire si erreur.</small>
+            </div>
+            """, unsafe_allow_html=True)
+        
         run = st.button("Analyser", use_container_width=True, key="multi_run")
     
     with col2:
@@ -600,15 +633,21 @@ def page_multi():
             tokenizer, mod, analyze_fn = get_model(model)
             
             all_results = []
+            all_posts_data = {}  # Stocker tous les posts pour détails
             progress = st.progress(0)
+            status = st.empty()
             
             for i, name in enumerate(selected):
+                status.text(f"Scraping {name}...")
                 config = CRYPTO_LIST[name]
                 posts = scrape_data(source, config, limit, method)
                 
                 if posts:
                     scores = []
                     labels = {"Bullish": 0, "Bearish": 0, "Neutral": 0}
+                    post_details = []
+                    correct = 0
+                    labeled_count = 0
                     
                     for post in posts:
                         text = clean_text(post["title"])
@@ -616,19 +655,64 @@ def page_multi():
                             s = analyze_fn(text, tokenizer, mod)
                             scores.append(s["score"])
                             labels[s["label"]] += 1
+                            
+                            # Accuracy si StockTwits
+                            if post.get("human_label"):
+                                labeled_count += 1
+                                if s["label"] == post["human_label"]:
+                                    correct += 1
+                            
+                            post_details.append({
+                                "text": text[:50],
+                                "score": s["score"],
+                                "label": s["label"],
+                                "human_label": post.get("human_label")
+                            })
+                    
+                    accuracy = round(correct / labeled_count * 100, 1) if labeled_count > 0 else None
                     
                     all_results.append({
                         "Crypto": name,
                         "Posts": len(scores),
-                        "Sentiment": np.mean(scores) if scores else 0,
+                        "Sentiment": round(np.mean(scores), 4) if scores else 0,
+                        "Std": round(np.std(scores), 4) if scores else 0,
                         "Bullish": labels["Bullish"],
                         "Bearish": labels["Bearish"],
-                        "Neutral": labels["Neutral"]
+                        "Neutral": labels["Neutral"],
+                        "Bullish%": round(labels["Bullish"] / len(scores) * 100, 1) if scores else 0,
+                        "Accuracy": accuracy
                     })
+                    all_posts_data[name] = post_details
                 
                 progress.progress((i + 1) / len(selected))
             
+            status.empty()
+            
+            if not all_results:
+                st.error("Aucun résultat")
+                return
+            
             df = pd.DataFrame(all_results)
+            
+            # === METRIQUES GLOBALES ===
+            st.markdown("### Vue d'ensemble")
+            
+            best_crypto = df.loc[df["Sentiment"].idxmax(), "Crypto"]
+            worst_crypto = df.loc[df["Sentiment"].idxmin(), "Crypto"]
+            avg_sentiment = df["Sentiment"].mean()
+            
+            cols = st.columns(4)
+            with cols[0]:
+                render_metric_card("Cryptos analysées", len(df))
+            with cols[1]:
+                render_metric_card("Sentiment moyen", f"{avg_sentiment:+.3f}")
+            with cols[2]:
+                render_metric_card("Plus haussier", best_crypto, f"{df.loc[df['Crypto']==best_crypto, 'Sentiment'].values[0]:+.3f}", "positive")
+            with cols[3]:
+                render_metric_card("Plus baissier", worst_crypto, f"{df.loc[df['Crypto']==worst_crypto, 'Sentiment'].values[0]:+.3f}", "negative")
+            
+            # === GRAPHIQUE COMPARATIF ===
+            st.markdown("### Comparaison des sentiments")
             
             fig = go.Figure(data=[go.Bar(
                 x=df["Crypto"],
@@ -649,13 +733,89 @@ def page_multi():
                 plot_bgcolor='rgba(0,0,0,0)',
                 font=dict(color='white'),
                 xaxis=dict(gridcolor='rgba(255,255,255,0.1)'),
-                yaxis=dict(gridcolor='rgba(255,255,255,0.1)', title="Sentiment"),
-                height=400,
-                margin=dict(t=40)
+                yaxis=dict(gridcolor='rgba(255,255,255,0.1)', title="Sentiment Score"),
+                height=350,
+                margin=dict(t=30, b=30)
             )
             st.plotly_chart(fig, use_container_width=True)
             
-            st.dataframe(df, use_container_width=True)
+            # === DISTRIBUTION PAR CRYPTO ===
+            st.markdown("### Distribution Bullish/Bearish/Neutral")
+            
+            cols = st.columns(min(len(df), 3))
+            for i, row in df.iterrows():
+                with cols[i % 3]:
+                    fig = go.Figure(data=[go.Pie(
+                        labels=["Bullish", "Bearish", "Neutral"],
+                        values=[row["Bullish"], row["Bearish"], row["Neutral"]],
+                        hole=0.5,
+                        marker=dict(colors=['#4ade80', '#f87171', '#64748b']),
+                        textinfo='percent',
+                        textfont=dict(size=11, color='white')
+                    )])
+                    fig.update_layout(
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color='white'),
+                        showlegend=False,
+                        title=dict(text=row["Crypto"], font=dict(size=14)),
+                        margin=dict(t=40, b=20, l=20, r=20),
+                        height=200
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+            
+            # === TABLEAU DETAILLE ===
+            st.markdown("### Détails par crypto")
+            
+            display_df = df[["Crypto", "Posts", "Sentiment", "Std", "Bullish%", "Accuracy"]].copy()
+            display_df.columns = ["Crypto", "Posts", "Sentiment", "Écart-type", "% Bullish", "Accuracy"]
+            display_df["Accuracy"] = display_df["Accuracy"].apply(lambda x: f"{x}%" if x else "-")
+            
+            st.dataframe(display_df, use_container_width=True)
+            
+            # === DETAILS PAR CRYPTO (expandable) ===
+            st.markdown("### Analyse détaillée par crypto")
+            
+            for name in selected:
+                if name in all_posts_data:
+                    with st.expander(f"{name} - {len(all_posts_data[name])} posts"):
+                        crypto_df = pd.DataFrame(all_posts_data[name])
+                        
+                        # Stats
+                        row = df[df["Crypto"] == name].iloc[0]
+                        c1, c2, c3, c4 = st.columns(4)
+                        c1.metric("Sentiment", f"{row['Sentiment']:+.3f}")
+                        c2.metric("Bullish", f"{row['Bullish%']}%")
+                        c3.metric("Bearish", f"{100 - row['Bullish%'] - (row['Neutral']/row['Posts']*100):.1f}%")
+                        if row["Accuracy"]:
+                            c4.metric("Accuracy", f"{row['Accuracy']}%")
+                        
+                        # Histogramme
+                        fig = go.Figure(data=[go.Histogram(
+                            x=crypto_df["score"],
+                            nbinsx=20,
+                            marker=dict(color='rgba(99, 102, 241, 0.7)')
+                        )])
+                        fig.add_vline(x=0, line_dash="dash", line_color="#64748b")
+                        fig.update_layout(
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            font=dict(color='white'),
+                            xaxis=dict(gridcolor='rgba(255,255,255,0.1)', title="Score"),
+                            yaxis=dict(gridcolor='rgba(255,255,255,0.1)'),
+                            height=200,
+                            margin=dict(t=10, b=30)
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Table posts
+                        st.dataframe(crypto_df, use_container_width=True, height=200)
+            
+            # === EXPORT ===
+            st.markdown("---")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.download_button("Télécharger résumé CSV", df.to_csv(index=False), "multi_crypto_summary.csv", use_container_width=True)
 
 
 def page_econometrie():
