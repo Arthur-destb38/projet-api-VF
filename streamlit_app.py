@@ -18,6 +18,7 @@ from app.scrapers import scrape_reddit, scrape_stocktwits, get_reddit_limits, ge
 from app.nlp import load_finbert, load_cryptobert, analyze_finbert, analyze_cryptobert
 from app.utils import clean_text
 from app.prices import get_historical_prices, CryptoPrices
+from app.storage import save_posts, get_all_posts, export_to_csv, export_to_json, get_stats
 
 try:
     from econometrics import run_full_analysis, run_demo_analysis
@@ -249,9 +250,15 @@ def get_model(name):
 
 def scrape_data(source, config, limit, method):
     if source == "Reddit":
-        return scrape_reddit(config['sub'], limit, method=method.lower())
+        posts = scrape_reddit(config['sub'], limit, method=method.lower())
+        # 💾 Sauvegarde automatique
+        save_posts(posts, source="reddit", method=method.lower())
+        return posts
     else:
-        return scrape_stocktwits(config['stocktwits'], limit)
+        posts = scrape_stocktwits(config['stocktwits'], limit)
+        # 💾 Sauvegarde automatique
+        save_posts(posts, source="stocktwits", method="selenium")
+        return posts
 
 # ============ COMPONENTS ============
 
@@ -368,6 +375,9 @@ def run_analysis(crypto, config, source, method, model, limit):
     if not posts:
         st.error("Aucun post récupéré")
         return
+    
+    # Afficher confirmation de sauvegarde
+    st.success(f"✅ {len(posts)} posts sauvegardés dans la base de données")
     
     with st.spinner(f"Analyse avec {model}..."):
         tokenizer, mod, analyze_fn = get_model(model)
@@ -1013,6 +1023,102 @@ def page_methodo():
         """)
 
 
+# ============ PAGE DONNÉES STOCKÉES ============
+
+def page_stored_data():
+    render_header()
+    st.markdown("### 📊 Données Stockées")
+    
+    # Récupérer les statistiques
+    stats = get_stats()
+    
+    # Affichage des métriques
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        render_metric_card("Total Posts", f"{stats['total_posts']:,}")
+    
+    with col2:
+        render_metric_card("Premier Scrape", stats['first_scrape'][:10] if stats['first_scrape'] else "N/A")
+    
+    with col3:
+        render_metric_card("Dernier Scrape", stats['last_scrape'][:10] if stats['last_scrape'] else "N/A")
+    
+    st.markdown("---")
+    
+    # Répartition par source/méthode
+    if stats['by_source_method']:
+        st.markdown("#### Répartition par Source et Méthode")
+        df_stats = pd.DataFrame(stats['by_source_method'])
+        
+        fig = px.bar(
+            df_stats,
+            x='source',
+            y='count',
+            color='method',
+            barmode='group',
+            title='Nombre de posts par source et méthode',
+            color_discrete_sequence=['#818cf8', '#22d3ee']
+        )
+        fig.update_layout(
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            font_color='#e0e7ff'
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    
+    st.markdown("---")
+    
+    # Filtres
+    st.markdown("#### Consulter les Données")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        source_filter = st.selectbox("Source", ["Toutes", "reddit", "stocktwits"])
+    with col2:
+        method_filter = st.selectbox("Méthode", ["Toutes", "http", "selenium"])
+    with col3:
+        limit = st.number_input("Limite", min_value=10, max_value=1000, value=100)
+    
+    # Récupérer les données
+    source = source_filter if source_filter != "Toutes" else None
+    method = method_filter if method_filter != "Toutes" else None
+    
+    posts = get_all_posts(source=source, method=method, limit=limit)
+    
+    if posts:
+        st.success(f"✅ {len(posts)} posts trouvés")
+        
+        # Afficher en DataFrame
+        df = pd.DataFrame(posts)
+        st.dataframe(df, use_container_width=True)
+        
+        # Boutons d'export
+        st.markdown("#### Exporter les Données")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("📥 Exporter en CSV"):
+                csv_path = export_to_csv(source=source, method=method)
+                st.success(f"✅ Exporté vers: {csv_path}")
+        
+        with col2:
+            if st.button("📥 Exporter en JSON"):
+                json_path = export_to_json(source=source, method=method)
+                st.success(f"✅ Exporté vers: {json_path}")
+    else:
+        st.warning("Aucune donnée trouvée avec ces filtres.")
+    
+    # Informations sur les fichiers
+    st.markdown("---")
+    st.markdown("#### 📁 Localisation des Fichiers")
+    st.code(f"""
+Base de données SQLite: {stats['db_path']}
+Fichier JSONL: {stats['jsonl_path']}
+Exports CSV/JSON: data/exports/
+    """)
+
+
 # ============ MAIN ============
 
 def main():
@@ -1021,7 +1127,7 @@ def main():
         <div style="text-align: center; padding: 1rem 0;">
             <div style="font-size: 2rem; color: #818cf8;">◈</div>
             <div style="font-weight: 700; color: #e0e7ff;">Crypto Sentiment</div>
-            <div style="font-size: 0.75rem; color: #64748b;">MoSEF 2024-2025</div>
+            <div style="font-size: 0.75rem; color: #64748b;">MoSEF 2025-2026</div>
         </div>
         """, unsafe_allow_html=True)
         
@@ -1029,7 +1135,7 @@ def main():
         
         page = st.radio(
             "Navigation",
-            ["Dashboard", "Comparaison", "Multi-crypto", "Économétrie", "Méthodologie"],
+            ["Dashboard", "Comparaison", "Multi-crypto", "Économétrie", "📊 Données Stockées", "Méthodologie"],
             label_visibility="collapsed"
         )
     
@@ -1041,6 +1147,8 @@ def main():
         page_multi()
     elif "Économétrie" in page:
         page_econometrie()
+    elif "Données" in page:
+        page_stored_data()
     else:
         page_methodo()
 

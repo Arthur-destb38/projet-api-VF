@@ -16,6 +16,7 @@ from app.scrapers import scrape_reddit, scrape_stocktwits, get_reddit_limits, ge
 from app.nlp import SentimentAnalyzer
 from app.prices import CryptoPrices
 from app.utils import clean_text
+from app.storage import save_posts, get_all_posts, export_to_csv, export_to_json, get_stats
 
 app = FastAPI(
     title="Crypto Sentiment API",
@@ -185,6 +186,9 @@ async def scrape(req: ScrapeRequest):
     
     elapsed = round(time.time() - start, 2)
     
+    # 💾 Sauvegarde automatique dans la base de données
+    storage_result = save_posts(posts, source=source_name.lower(), method=method_used)
+    
     # Stats labels humains (StockTwits)
     human_labels = {"Bullish": 0, "Bearish": 0, "None": 0}
     for p in posts:
@@ -200,6 +204,7 @@ async def scrape(req: ScrapeRequest):
         "symbol": req.symbol,
         "posts_count": len(posts),
         "time_seconds": elapsed,
+        "storage": storage_result,
         "human_labels": human_labels if req.source == SourceEnum.stocktwits else None,
         "posts": posts[:10]  # Sample
     }
@@ -227,16 +232,24 @@ async def scrape_both(
     # Reddit
     reddit_start = time.time()
     reddit_posts = scrape_reddit(subreddit, limit=limit_reddit, method=method_reddit.value)
+    
+    # 💾 Sauvegarde Reddit
+    reddit_storage = save_posts(reddit_posts, source="reddit", method=method_reddit.value)
+    
     results["reddit"] = {
         "posts_count": len(reddit_posts),
         "method": method_reddit.value,
         "time_seconds": round(time.time() - reddit_start, 2),
+        "storage": reddit_storage,
         "posts": reddit_posts[:5]
     }
     
     # StockTwits
     st_start = time.time()
     st_posts = scrape_stocktwits(stocktwits_symbol, limit=limit_stocktwits)
+    
+    # 💾 Sauvegarde StockTwits
+    st_storage = save_posts(st_posts, source="stocktwits", method="selenium")
     
     # Stats labels humains
     human_labels = {"Bullish": 0, "Bearish": 0, "None": 0}
@@ -251,6 +264,7 @@ async def scrape_both(
         "posts_count": len(st_posts),
         "method": "selenium",
         "time_seconds": round(time.time() - st_start, 2),
+        "storage": st_storage,
         "human_labels": human_labels,
         "posts": st_posts[:5]
     }
@@ -562,6 +576,77 @@ async def compare_sources(
         "crypto": crypto_id,
         "model": model.value,
         "results": results
+    }
+
+
+# ===================== ENDPOINTS STOCKAGE =====================
+
+@app.get("/storage/stats", tags=["Stockage"])
+async def storage_stats():
+    """
+    Statistiques sur les données stockées
+    
+    Retourne le nombre total de posts sauvegardés, répartition par source/méthode,
+    et dates du premier et dernier scrape.
+    """
+    return get_stats()
+
+
+@app.get("/storage/posts", tags=["Stockage"])
+async def get_stored_posts(
+    source: str | None = None,
+    method: str | None = None,
+    limit: int = 100
+):
+    """
+    Récupérer les posts stockés avec filtres optionnels
+    
+    - **source**: reddit ou stocktwits
+    - **method**: http ou selenium
+    - **limit**: nombre max de résultats
+    """
+    posts = get_all_posts(source=source, method=method, limit=limit)
+    return {
+        "count": len(posts),
+        "source_filter": source,
+        "method_filter": method,
+        "posts": posts
+    }
+
+
+@app.get("/storage/export/csv", tags=["Stockage"])
+async def export_csv(
+    source: str | None = None,
+    method: str | None = None
+):
+    """
+    Exporter les données en CSV
+    
+    Génère un fichier CSV dans data/exports/ avec tous les posts filtrés.
+    """
+    filepath = export_to_csv(source=source, method=method)
+    return {
+        "success": True,
+        "filepath": filepath,
+        "message": f"Données exportées avec succès"
+    }
+
+
+@app.get("/storage/export/json", tags=["Stockage"])
+async def export_json(
+    source: str | None = None,
+    method: str | None = None
+):
+    """
+    Exporter les données en JSON
+    
+    Génère un fichier JSON dans data/exports/ avec tous les posts filtrés.
+    """
+    filepath = export_to_json(source=source, method=method)
+    return {
+        "success": True,
+        "filepath": filepath,
+        "message": f"Données exportées avec succès"
     }
 
 
