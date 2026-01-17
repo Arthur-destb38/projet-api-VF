@@ -12,7 +12,7 @@ from enum import Enum
 from datetime import datetime
 import time
 
-from app.scrapers import scrape_reddit, scrape_stocktwits, get_reddit_limits, get_stocktwits_limits
+from app.scrapers import scrape_reddit, scrape_stocktwits, scrape_twitter, get_reddit_limits, get_stocktwits_limits, get_twitter_limits
 from app.scrapers import scrape_telegram_simple, scrape_telegram_paginated, TELEGRAM_CHANNELS, get_telegram_limits
 from app.nlp import SentimentAnalyzer
 from app.prices import CryptoPrices
@@ -50,6 +50,7 @@ class SourceEnum(str, Enum):
     reddit = "reddit"
     stocktwits = "stocktwits"
     telegram = "telegram"
+    twitter = "twitter"
 
 class MethodEnum(str, Enum):
     http = "http"
@@ -129,6 +130,7 @@ def get_scraping_limits():
     return {
         "reddit": get_reddit_limits(),
         "stocktwits": get_stocktwits_limits(),
+        "twitter": get_twitter_limits(),
         "telegram": get_telegram_limits()
     }
 
@@ -198,6 +200,7 @@ async def get_limits():
     - Reddit HTTP: max 1000 posts
     - Reddit Selenium: max 200 posts
     - StockTwits Selenium: max 300 posts (seule methode disponible)
+    - Twitter Selenium: max 100 posts (comportement humain)
     - Telegram: max 30 (simple) ou 500 (paginé)
     """
     return {
@@ -209,6 +212,10 @@ async def get_limits():
             "selenium": {"max": 300, "description": "Seule methode (Cloudflare)"},
             "http": {"max": 0, "description": "Non disponible (Cloudflare)"}
         },
+        "twitter": {
+            "selenium": {"max": 100, "description": "Comportement humain anti-detection"},
+            "http": {"max": 0, "description": "Non disponible (login requis)"}
+        },
         "telegram": {
             "simple": {"max": 30, "description": "Scraping basique rapide"},
             "paginated": {"max": 500, "description": "Avec pagination (plus lent)"}
@@ -219,7 +226,7 @@ async def get_limits():
 @app.post("/scrape", tags=["Scraping"])
 async def scrape(req: ScrapeRequest):
     """
-    Scrape posts depuis Reddit ou StockTwits
+    Scrape posts depuis Reddit, StockTwits, Twitter ou Telegram
     
     **Reddit:**
     - http: max 1000 posts, rapide (~1-5s)
@@ -228,6 +235,10 @@ async def scrape(req: ScrapeRequest):
     **StockTwits:**
     - selenium uniquement: max 300 posts (~10-30s)
     - Labels humains Bullish/Bearish inclus!
+    
+    **Twitter:**
+    - selenium: max 100 posts (~15-30s)
+    - Comportement humain pour eviter detection
     """
     start = time.time()
     
@@ -235,6 +246,11 @@ async def scrape(req: ScrapeRequest):
         # StockTwits = Selenium uniquement
         posts = scrape_stocktwits(req.symbol, limit=req.limit)
         source_name = "StockTwits"
+        method_used = "selenium"
+    elif req.source == SourceEnum.twitter:
+        # Twitter = Selenium avec comportement humain
+        posts = scrape_twitter(req.symbol, limit=req.limit)
+        source_name = "Twitter"
         method_used = "selenium"
     elif req.source == SourceEnum.telegram:
         # Telegram - utiliser pagination si > 30 posts

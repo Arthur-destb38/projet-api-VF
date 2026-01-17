@@ -6,6 +6,11 @@ import requests
 import time
 import random
 
+try:
+    from app.storage import save_posts
+except Exception:
+    save_posts = None
+
 # Limites pour eviter le ban
 LIMITS = {
     "http": 1000,      # Reddit JSON API limite a ~1000 posts
@@ -59,6 +64,9 @@ def scrape_reddit_http(subreddit: str, limit: int = 100) -> list:
         
         time.sleep(0.3)
     
+    if save_posts:
+        save_posts(posts, source="reddit", method="http")
+
     return posts
 
 
@@ -172,7 +180,11 @@ def scrape_reddit_selenium(subreddit: str, limit: int = 100) -> list:
     finally:
         driver.quit()
     
-    return posts[:limit]
+    posts = posts[:limit]
+    if save_posts:
+        save_posts(posts, source="reddit", method="selenium")
+
+    return posts
 
 
 def scrape_reddit(subreddit: str, limit: int = 100, method: str = "http") -> list:

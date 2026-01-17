@@ -14,7 +14,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from app.scrapers import scrape_reddit, scrape_stocktwits, get_reddit_limits, get_stocktwits_limits
+from app.scrapers import scrape_reddit, scrape_stocktwits, scrape_twitter, get_reddit_limits, get_stocktwits_limits, get_twitter_limits
 from app.scrapers import scrape_telegram_simple, scrape_telegram_paginated, TELEGRAM_CHANNELS, get_telegram_limits
 from app.nlp import load_finbert, load_cryptobert, analyze_finbert, analyze_cryptobert
 from app.utils import clean_text
@@ -224,6 +224,7 @@ CRYPTO_LIST = {
 LIMITS = {
     "Reddit": {"HTTP": get_reddit_limits()["http"], "Selenium": get_reddit_limits()["selenium"]},
     "StockTwits": {"Selenium": get_stocktwits_limits()["selenium"]},
+    "Twitter": {"Selenium": get_twitter_limits()["selenium"]},
     "Telegram": {"Simple": get_telegram_limits()["simple"], "Paginé": get_telegram_limits()["paginated"]}
 }
 
@@ -250,26 +251,27 @@ def get_model(name):
         tok, mod = get_cryptobert()
         return tok, mod, analyze_cryptobert
 
-def scrape_data(source, config, limit, method, telegram_channel=None):
+def scrape_data(source, config, limit, method, telegram_channel=None, crypto_name=None):
     if source == "Reddit":
         posts = scrape_reddit(config['sub'], limit, method=method.lower())
-        # 💾 Sauvegarde automatique
         save_posts(posts, source="reddit", method=method.lower())
         return posts
+    elif source == "Twitter":
+        query = crypto_name or config.get('sub', 'Bitcoin')
+        posts = scrape_twitter(query, limit)
+        save_posts(posts, source="twitter", method="selenium")
+        return posts
     elif source == "Telegram":
-        # Utiliser pagination si > 30 posts
         if limit > 30:
             posts = scrape_telegram_paginated(telegram_channel, limit)
         else:
             posts = scrape_telegram_simple(telegram_channel, limit)
-        # Adapter le format pour compatibilité
         for p in posts:
             p['title'] = p.get('text', '')
         save_posts(posts, source="telegram", method="http")
         return posts
     else:
         posts = scrape_stocktwits(config['stocktwits'], limit)
-        # 💾 Sauvegarde automatique
         save_posts(posts, source="stocktwits", method="selenium")
         return posts
 
@@ -332,12 +334,22 @@ def page_dashboard():
         crypto = st.selectbox("Crypto", list(CRYPTO_LIST.keys()), key="dash_crypto")
         config = CRYPTO_LIST[crypto]
         
-        source = st.radio("Source", ["Reddit", "StockTwits", "Telegram"], horizontal=True, key="dash_source")
+        source = st.radio("Source", ["Reddit", "StockTwits", "Twitter", "Telegram"], horizontal=True, key="dash_source")
         
         if source == "Reddit":
             method = st.radio("Méthode", ["HTTP", "Selenium"], horizontal=True, key="dash_method")
             max_limit = LIMITS["Reddit"][method]
             telegram_channel = None
+        elif source == "Twitter":
+            method = "Selenium"
+            max_limit = LIMITS["Twitter"]["Selenium"]
+            telegram_channel = None
+            st.markdown("""
+            <div class="info-box">
+                <strong>Twitter/X</strong><br>
+                <small>Scrape comptes crypto influents (sans login)</small>
+            </div>
+            """, unsafe_allow_html=True)
         elif source == "Telegram":
             method = st.radio("Méthode", ["Simple", "Paginé"], horizontal=True, key="dash_method_tg")
             max_limit = LIMITS["Telegram"][method]
@@ -345,7 +357,7 @@ def page_dashboard():
                                            format_func=lambda x: f"{x} - {TELEGRAM_CHANNELS[x]}", key="dash_tg_channel")
             st.markdown(f"""
             <div class="info-box">
-                <strong>📡 Channel:</strong> @{telegram_channel}<br>
+                <strong>Channel:</strong> @{telegram_channel}<br>
                 <small>Scraping public sans API</small>
             </div>
             """, unsafe_allow_html=True)
@@ -374,7 +386,7 @@ def page_dashboard():
     
     with col2:
         if analyze:
-            run_analysis(crypto, config, source, method, model, limit, telegram_channel)
+            run_analysis(crypto, config, source, method, model, limit, telegram_channel, crypto)
         else:
             st.markdown("""
             <div style="
@@ -393,9 +405,9 @@ def page_dashboard():
             """, unsafe_allow_html=True)
 
 
-def run_analysis(crypto, config, source, method, model, limit, telegram_channel=None):
+def run_analysis(crypto, config, source, method, model, limit, telegram_channel=None, crypto_name=None):
     with st.spinner(f"Scraping {source}..."):
-        posts = scrape_data(source, config, limit, method, telegram_channel)
+        posts = scrape_data(source, config, limit, method, telegram_channel, crypto_name)
     
     if not posts:
         st.error("Aucun post récupéré")
@@ -529,12 +541,15 @@ def page_compare():
         crypto = st.selectbox("Crypto", list(CRYPTO_LIST.keys()), key="cmp_crypto")
         config = CRYPTO_LIST[crypto]
         
-        source = st.radio("Source", ["Reddit", "StockTwits", "Telegram"], key="cmp_source")
+        source = st.radio("Source", ["Reddit", "StockTwits", "Twitter", "Telegram"], key="cmp_source")
         
         telegram_channel = None
         if source == "Reddit":
             method = st.radio("Méthode", ["HTTP", "Selenium"], key="cmp_method")
             max_limit = LIMITS["Reddit"][method]
+        elif source == "Twitter":
+            method = "Selenium"
+            max_limit = LIMITS["Twitter"]["Selenium"]
         elif source == "Telegram":
             method = st.radio("Méthode", ["Simple", "Paginé"], key="cmp_method_tg")
             max_limit = LIMITS["Telegram"][method]
@@ -550,7 +565,7 @@ def page_compare():
     with col2:
         if run:
             with st.spinner("Scraping..."):
-                posts = scrape_data(source, config, limit, method, telegram_channel)
+                posts = scrape_data(source, config, limit, method, telegram_channel, crypto)
             
             if not posts:
                 st.error("Aucun post")
@@ -633,12 +648,15 @@ def page_multi():
         selected = st.multiselect("Cryptos", list(CRYPTO_LIST.keys()),
                                   default=["Bitcoin", "Ethereum", "Solana"], key="multi_crypto")
         
-        source = st.radio("Source", ["Reddit", "StockTwits", "Telegram"], key="multi_source")
+        source = st.radio("Source", ["Reddit", "StockTwits", "Twitter", "Telegram"], key="multi_source")
         
         telegram_channel = None
         if source == "Reddit":
             method = st.radio("Méthode", ["HTTP", "Selenium"], key="multi_method")
             max_limit = LIMITS["Reddit"][method]
+        elif source == "Twitter":
+            method = "Selenium"
+            max_limit = LIMITS["Twitter"]["Selenium"]
         elif source == "Telegram":
             method = st.radio("Méthode", ["Simple", "Paginé"], key="multi_method_tg")
             max_limit = LIMITS["Telegram"][method]
@@ -687,7 +705,7 @@ def page_multi():
             for i, name in enumerate(selected):
                 status.text(f"Scraping {name}...")
                 config = CRYPTO_LIST[name]
-                posts = scrape_data(source, config, limit, method, telegram_channel)
+                posts = scrape_data(source, config, limit, method, telegram_channel, name)
                 
                 if posts:
                     scores = []

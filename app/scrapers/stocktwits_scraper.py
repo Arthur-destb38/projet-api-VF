@@ -9,6 +9,11 @@ import re
 import json
 
 try:
+    from app.storage import save_posts
+except Exception:
+    save_posts = None
+
+try:
     from selenium import webdriver
     from selenium.webdriver.common.by import By
     from selenium.webdriver.chrome.options import Options
@@ -134,7 +139,11 @@ def scrape_stocktwits(symbol: str, limit: int = 100, method: str = "selenium") -
     finally:
         driver.quit()
 
-    return posts[:limit]
+    posts = posts[:limit]
+    if save_posts:
+        save_posts(posts, source="stocktwits", method="selenium")
+
+    return posts
 
 
 def extract_json_data(driver, limit: int) -> list:

@@ -106,116 +106,166 @@
 \section{Collecte des données (Web Scraping)}
 % ============================================================
 
-\begin{frame}{Deux approches de collecte}
+\begin{frame}{Architecture technique}
     \centering
     \begin{tikzpicture}[
-        box/.style={rectangle, draw, rounded corners, minimum width=4cm, minimum height=1.5cm, align=center, thick},
-        arrow/.style={->, thick, >=stealth}
+        box/.style={rectangle, draw, rounded corners, minimum width=2.5cm, minimum height=1cm, align=center},
+        arrow/.style={->, thick}
     ]
-        % Method 1
-        \node[box, fill=blue!20] (api) at (-4, 0) {\textbf{Méthode API}\\Requêtes JSON};
-        
-        % Method 2
-        \node[box, fill=orange!20] (html) at (4, 0) {\textbf{Méthode HTML}\\Parsing + Selenium};
-        
         % Sources
-        \node[box, fill=gray!10] (reddit) at (-4, -3) {Reddit};
-        \node[box, fill=gray!10] (stocktwits) at (4, -3) {StockTwits};
+        \node[box, fill=orange!20] (reddit) at (0, 2) {Reddit};
+        \node[box, fill=blue!20] (stocktwits) at (0, 0) {StockTwits};
+        
+        % Scrapers
+        \node[box, fill=gray!20] (scraper) at (4, 1) {Scrapers\\HTTP/Selenium};
+        
+        % NLP
+        \node[box, fill=green!20] (nlp) at (8, 1) {NLP\\FinBERT/CryptoBERT};
+        
+        % Output
+        \node[box, fill=purple!20] (api) at (12, 2) {API\\FastAPI};
+        \node[box, fill=red!20] (streamlit) at (12, 0) {Interface\\Streamlit};
         
         % Arrows
-        \draw[arrow] (api) -- (reddit);
-        \draw[arrow] (html) -- (stocktwits);
+        \draw[arrow] (reddit) -- (scraper);
+        \draw[arrow] (stocktwits) -- (scraper);
+        \draw[arrow] (scraper) -- (nlp);
+        \draw[arrow] (nlp) -- (api);
+        \draw[arrow] (nlp) -- (streamlit);
     \end{tikzpicture}
-    
-    \vspace{0.5cm}
-    
-    \textbf{Pourquoi deux méthodes ?} Chaque plateforme a ses contraintes techniques
 \end{frame}
 
-\begin{frame}[fragile]{Méthode 1 : API JSON (Reddit)}
-    \textbf{Principe} : Reddit expose son contenu en JSON\vspace{0.3cm}
-    
-    \begin{lstlisting}[language=Python]
-url = "https://old.reddit.com/r/Bitcoin/new.json"
-resp = requests.get(url, headers={...})
-data = resp.json()
-    \end{lstlisting}
-    
-    \vspace{0.3cm}
-    
-    \textbf{Avantages}\vspace{0.2cm}
-    \begin{itemize}
-        \item \textcolor{bullish}{Rapide} : 1-5 secondes pour 100 posts
-        \item \textcolor{bullish}{Scalable} : jusqu'à 1000 posts par requête
-        \item \textcolor{bullish}{Données structurées} : JSON facilement parsable
-    \end{itemize}
-    
-    \vspace{0.3cm}
-    
-    \textbf{Limites}\vspace{0.2cm}
-    \begin{itemize}
-        \item \textcolor{bearish}{Rate limiting} : max 60 requêtes/min
-        \item \textcolor{bearish}{Pagination} : nécessite plusieurs appels pour gros volumes
-    \end{itemize}
+\begin{frame}{Méthode HTTP : scraping via endpoints JSON}
+\textbf{Principe général}\vspace{0.3cm}
+
+Certaines plateformes exposent leur contenu sous forme de réponses JSON accessibles via des requêtes HTTP simples.  
+Dans ce cas, le scraping consiste à interroger directement ces endpoints et à parser la réponse structurée.
+
+\vspace{0.4cm}
+
+\textbf{Exemple : Reddit}\vspace{0.2cm}
+\begin{itemize}
+    \item Accès public aux flux \texttt{.json}
+    \item Pas d’exécution JavaScript nécessaire
+    \item Données déjà structurées (posts, dates, scores, auteurs)
+\end{itemize}
+
+\vspace{0.4cm}
+
+\textbf{Logique de fonctionnement}\vspace{0.2cm}
+\begin{enumerate}
+    \item Envoi d’une requête HTTP avec \texttt{requests}
+    \item Réception d’une réponse JSON
+    \item Parsing et normalisation des champs utiles
+\end{enumerate}
+\end{frame}
+
+\begin{frame}{Méthode HTTP : avantages et limites}
+\textbf{Avantages}\vspace{0.2cm}
+\begin{itemize}
+    \item \textcolor{bullish}{Très rapide} : pas de navigateur à lancer
+    \item \textcolor{bullish}{Scalable} : pagination simple jusqu’à $\sim$1000 posts
+    \item \textcolor{bullish}{Stable} : structure JSON peu sensible aux changements visuels
+    \item \textcolor{bullish}{Faible coût en ressources} (CPU / mémoire)
+\end{itemize}
+
+\vspace{0.4cm}
+
+\textbf{Limites}\vspace{0.2cm}
+\begin{itemize}
+    \item \textcolor{bearish}{Dépend de l’accessibilité publique} des endpoints
+    \item \textcolor{bearish}{Rate limiting} imposé par la plateforme
+    \item \textcolor{bearish}{Pas de labels humains explicites} pour le sentiment
+\end{itemize}
+
+\vspace{0.4cm}
+
+\textbf{Quand utiliser cette méthode ?}\vspace{0.2cm}
+
+Dès que la plateforme propose des flux JSON accessibles sans authentification lourde.
+\end{frame}
+
+\begin{frame}{Méthode Selenium : scraping via navigateur réel}
+\textbf{Problème rencontré}\vspace{0.3cm}
+
+Certaines plateformes financières utilisent :
+\begin{itemize}
+    \item du contenu chargé dynamiquement en JavaScript
+    \item des protections anti-bot (Cloudflare)
+    \item une structure HTML générée côté client
+\end{itemize}
+
+\vspace{0.4cm}
+
+\textbf{Conséquence}\vspace{0.2cm}
+
+Les requêtes HTTP simples ne permettent pas d’accéder aux données visibles par un utilisateur.
+
+\vspace{0.4cm}
+
+\textbf{Solution retenue}\vspace{0.2cm}
+
+Utiliser \textbf{Selenium} pour :
+\begin{itemize}
+    \item lancer un vrai navigateur
+    \item exécuter le JavaScript
+    \item récupérer le DOM final rendu
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Selenium : synchronisation et comportement humain}
+\textbf{Chargement asynchrone}\vspace{0.2cm}
+
+Le contenu n’apparaît pas instantanément après le chargement de la page.
+
+\vspace{0.3cm}
+
+\textbf{Bonne pratique : attentes explicites}\vspace{0.2cm}
+\begin{itemize}
+    \item Utilisation de \texttt{WebDriverWait}
+    \item Attente ciblée sur des éléments précis du DOM
+    \item Synchronisation avec le rendu réel de la page
+\end{itemize}
+
+\vspace{0.4cm}
+
+\textbf{Simulation d’un comportement humain}\vspace{0.2cm}
+\begin{itemize}
+    \item pauses aléatoires entre actions
+    \item scroll progressif
+    \item limitation du nombre de posts par session
+\end{itemize}
+
+\vspace{0.4cm}
+
+\textbf{Objectif}\vspace{0.2cm}
+
+Reproduire une navigation utilisateur réaliste et robuste.
+\end{frame}
+
+\begin{frame}{Comparaison des méthodes de scraping}
+\begin{table}[h]
+\centering
+\begin{tabular}{lcc}
+\toprule
+\textbf{Critère} & \textbf{HTTP (Reddit)} & \textbf{Selenium (StockTwits)} \\
+\midrule
+Type de contenu & JSON statique & HTML + JS dynamique \\
+Vitesse & \textcolor{bullish}{Très rapide} & \textcolor{bearish}{Plus lent} \\
+Complexité & Faible & Élevée \\
+Robustesse & \textcolor{bullish}{Élevée} & Moyenne \\
+Comportement humain & Non requis & \textcolor{bullish}{Indispensable} \\
+Labels humains & Non & \textcolor{bullish}{Oui} \\
+Ressources & Faibles & Élevées \\
+\bottomrule
+\end{tabular}
+\end{table}
 \end{frame}
 
 
 
-\begin{frame}[fragile]{Méthode 2 : HTML Parsing + Selenium (StockTwits)}
-    \textbf{Problème} : StockTwits utilise Cloudflare → API bloquée\vspace{0.3cm}
-    
-    \textbf{Solution} : Simuler un navigateur réel\vspace{0.2cm}
-    \begin{lstlisting}[language=Python]
-driver = webdriver.Chrome(options=headless_options)
-driver.get("https://stocktwits.com/symbol/BTC.X")
-time.sleep(5)  # Attendre Cloudflare
-soup = BeautifulSoup(driver.page_source, "lxml")
-    \end{lstlisting}
-    
-    \vspace{0.3cm}
-    
-    \textbf{Avantages}\vspace{0.2cm}
-    \begin{itemize}
-        \item \textcolor{bullish}{Labels humains} : Bullish/Bearish fournis par les utilisateurs
-        \item \textcolor{bullish}{Bypass Cloudflare} : contourne les protections anti-bot
-    \end{itemize}
-    
-    \vspace{0.3cm}
-    
-    \textbf{Limites}\vspace{0.2cm}
-    \begin{itemize}
-        \item \textcolor{bearish}{Lent} : 10-30 secondes pour 100 posts
-        \item \textcolor{bearish}{Fragile} : dépend de la structure HTML du site
-    \end{itemize}
-\end{frame}
 
 
-
-\begin{frame}{Comparaison des méthodes}
-    \begin{table}[h]
-        \centering
-        \begin{tabular}{lccc}
-            \toprule
-            \textbf{Critère} & \textbf{HTTP (Reddit)} & \textbf{Selenium (StockTwits)} \\
-            \midrule
-            Vitesse & \textcolor{bullish}{1-5s} & \textcolor{bearish}{10-30s} \\
-            Limite posts & 1000 & 300 \\
-            Complexité & Faible & Élevée \\
-            Robustesse & \textcolor{bullish}{Excellente} & \textcolor{bearish}{Moyenne} \\
-            Labels humains & \textcolor{bearish}{Non} & \textcolor{bullish}{Oui} \\
-            Ressources CPU & \textcolor{bullish}{Faibles} & \textcolor{bearish}{Élevées} \\
-            \bottomrule
-        \end{tabular}
-    \end{table}
-    
-    \vspace{0.5cm}
-    
-    \textbf{Conclusion} : Approche hybride optimale\vspace{0.2cm}
-    \begin{itemize}
-        \item HTTP pour le volume (Reddit)
-        \item Selenium pour la validation (StockTwits avec labels)
-    \end{itemize}
-\end{frame}
 
 % ============================================================
 \section{Modèles de Sentiment}
@@ -224,25 +274,25 @@ soup = BeautifulSoup(driver.page_source, "lxml")
 \begin{frame}{FinBERT}
     \textbf{Modèle} : ProsusAI/finbert (HuggingFace)\vspace{0.3cm}
     
-    \textbf{Spécialisation}\vspace{0.2cm}
+    \textbf{Spécialisation}\vspace{0.1cm}
     \begin{itemize}
         \item Entraîné sur \textbf{Financial PhraseBank}
         \item Spécialisé dans le vocabulaire financier
         \item Base : BERT (Google)
     \end{itemize}
     
-    \vspace{0.4cm}
+    \vspace{0.2cm}
     
-    \textbf{Architecture}\vspace{0.2cm}
+    \textbf{Architecture}\vspace{0.1cm}
     \begin{itemize}
         \item Input : texte (max 512 tokens)
         \item Output : 3 classes (Positive, Negative, Neutral)
         \item Conversion : Positive → Bullish, Negative → Bearish
     \end{itemize}
     
-    \vspace{0.4cm}
+    \vspace{0.2cm}
     
-    \textbf{Score de sentiment}\vspace{0.2cm}
+    \textbf{Score de sentiment}\vspace{0.1cm}
     \begin{itemize}
         \item Formule : $\text{score} = P(\text{positive}) - P(\text{negative})$
         \item Plage : [-1, 1] où -1 = très bearish, +1 = très bullish
@@ -252,25 +302,25 @@ soup = BeautifulSoup(driver.page_source, "lxml")
 \begin{frame}{CryptoBERT}
     \textbf{Modèle} : ElKulako/cryptobert (HuggingFace)\vspace{0.3cm}
     
-    \textbf{Spécialisation crypto}\vspace{0.2cm}
+    \textbf{Spécialisation crypto}\vspace{0.1cm}
     \begin{itemize}
         \item Entraîné sur \textbf{3.2 millions} de posts Reddit crypto
         \item Vocabulaire spécialisé : "HODL", "moon", "dump", "FUD"...
         \item Comprend le jargon des investisseurs crypto
     \end{itemize}
     
-    \vspace{0.4cm}
+    \vspace{0.2cm}
     
-    \textbf{Architecture}\vspace{0.2cm}
+    \textbf{Architecture}\vspace{0.1cm}
     \begin{itemize}
         \item Input : texte (max 128 tokens)
         \item Output : 3 classes (Bearish, Neutral, Bullish)
         \item Plus rapide que FinBERT (contexte plus court)
     \end{itemize}
     
-    \vspace{0.4cm}
+    \vspace{0.2cm}
     
-    \textbf{Avantages}\vspace{0.2cm}
+    \textbf{Avantages}\vspace{0.1cm}
     \begin{itemize}
         \item \textcolor{bullish}{Meilleure compréhension} du langage crypto
         \item \textcolor{bullish}{Entraîné} sur le domaine cible
@@ -367,40 +417,13 @@ soup = BeautifulSoup(driver.page_source, "lxml")
 \section{Gestion des API}
 % ============================================================
 
-\begin{frame}{Architecture technique}
-    \centering
-    \begin{tikzpicture}[
-        box/.style={rectangle, draw, rounded corners, minimum width=2.5cm, minimum height=1cm, align=center},
-        arrow/.style={->, thick}
-    ]
-        % Sources
-        \node[box, fill=orange!20] (reddit) at (0, 2) {Reddit};
-        \node[box, fill=blue!20] (stocktwits) at (0, 0) {StockTwits};
-        
-        % Scrapers
-        \node[box, fill=gray!20] (scraper) at (4, 1) {Scrapers\\HTTP/Selenium};
-        
-        % NLP
-        \node[box, fill=green!20] (nlp) at (8, 1) {NLP\\FinBERT/CryptoBERT};
-        
-        % Output
-        \node[box, fill=purple!20] (api) at (12, 2) {API\\FastAPI};
-        \node[box, fill=red!20] (streamlit) at (12, 0) {Interface\\Streamlit};
-        
-        % Arrows
-        \draw[arrow] (reddit) -- (scraper);
-        \draw[arrow] (stocktwits) -- (scraper);
-        \draw[arrow] (scraper) -- (nlp);
-        \draw[arrow] (nlp) -- (api);
-        \draw[arrow] (nlp) -- (streamlit);
-    \end{tikzpicture}
-\end{frame}
+
 
 
 
 
 \begin{frame}[fragile]{API FastAPI}
-    \textbf{Endpoints principaux}\vspace{0.3cm}
+    \textbf{Endpoints principaux}\vspace{0.1cm}
     
     \begin{lstlisting}[language=bash]
 POST /scrape          # Scraping seul
@@ -410,9 +433,9 @@ POST /compare/models  # FinBERT vs CryptoBERT
 GET  /prices/{crypto} # Prix CoinGecko
     \end{lstlisting}
     
-    \vspace{0.4cm}
+    \vspace{0.2cm}
     
-    \textbf{Fonctionnalités}\vspace{0.2cm}
+    \textbf{Fonctionnalités}\vspace{0.1cm}
     \begin{itemize}
         \item Documentation auto-générée : Swagger UI
         \item Validation des requêtes : Pydantic
@@ -420,13 +443,12 @@ GET  /prices/{crypto} # Prix CoinGecko
         \item Rate limiting et cache pour optimiser les performances
     \end{itemize}
     
-    \vspace{0.4cm}
+    \vspace{0.2cm}
     
-    \textbf{Interface Streamlit}\vspace{0.2cm}
+    \textbf{Dashboard}\vspace{0.1cm}
     \begin{itemize}
         \item Graphiques interactifs (sentiment dans le temps)
         \item Sélection crypto, source, modèle
-        \item Export CSV des résultats
     \end{itemize}
 \end{frame}
 
@@ -435,24 +457,6 @@ GET  /prices/{crypto} # Prix CoinGecko
 % ============================================================
 \section{Démonstration}
 % ============================================================
-
-\begin{frame}{Démonstration en direct}
-    \centering
-    \vspace{0.5cm}
-    
-    \begin{tikzpicture}[
-        box/.style={rectangle, draw, rounded corners, minimum width=3.5cm, minimum height=1.2cm, align=center, thick, fill=blue!10}
-    ]
-        \node[box] (step1) at (0, 3) {\textbf{1. Lancement}\\Streamlit};
-        \node[box] (step2) at (0, 1) {\textbf{2. Scraping}\\Reddit / StockTwits};
-        \node[box] (step3) at (0, -1) {\textbf{3. Analyse NLP}\\FinBERT / CryptoBERT};
-        \node[box] (step4) at (0, -3) {\textbf{4. Résultats}\\Visualisations};
-        
-        \draw[->, thick] (step1) -- (step2);
-        \draw[->, thick] (step2) -- (step3);
-        \draw[->, thick] (step3) -- (step4);
-    \end{tikzpicture}
-\end{frame}
 
 
 \begin{frame}[fragile]{Démonstration : Lancement}
@@ -552,5 +556,7 @@ poetry run streamlit run streamlit_app.py
 \end{frame}
 
 \end{document}
+
+
 
 
