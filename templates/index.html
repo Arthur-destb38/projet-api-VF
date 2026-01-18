@@ -109,6 +109,10 @@
                     <span class="title">StockTwits</span>
                     <span class="desc">Labels humains</span>
                 </div>
+                <div class="option-btn" data-value="twitter">
+                    <span class="title">Twitter</span>
+                    <span class="desc">Recherche avancee</span>
+                </div>
             </div>
 
             <label>Methode</label>
@@ -121,6 +125,27 @@
                     <span class="title">Selenium</span>
                     <span class="desc">Robuste</span>
                 </div>
+            </div>
+
+            <!-- Twitter Options -->
+            <div id="twitter-options" style="display: none; margin-top: 15px; padding: 15px; background: #f0f7ff; border-radius: 6px;">
+                <label style="margin-top: 0;">Mode de tri</label>
+                <div class="option-group" id="twitter-sort-group">
+                    <div class="option-btn active" data-value="top">
+                        <span class="title">Top</span>
+                        <span class="desc">Populaires</span>
+                    </div>
+                    <div class="option-btn" data-value="live">
+                        <span class="title">Live</span>
+                        <span class="desc">Recents</span>
+                    </div>
+                </div>
+                <label>Min likes (0 = tous)</label>
+                <input type="number" id="twitter-min-likes" value="0" min="0">
+                <label>Date debut</label>
+                <input type="date" id="twitter-start-date">
+                <label>Date fin</label>
+                <input type="date" id="twitter-end-date">
             </div>
 
             <div class="limits-info" id="limits-info">
@@ -207,11 +232,16 @@
 let selectedSource = 'reddit';
 let selectedMethod = 'http';
 let selectedModel = 'finbert';
+let twitterSort = 'top';
 
 function updateUI() {
     const methodGroup = document.getElementById('method-group');
     const limitsInfo = document.getElementById('limits-info');
     const limitInput = document.getElementById('limit');
+    const twitterOptions = document.getElementById('twitter-options');
+    
+    // Show/hide Twitter options
+    twitterOptions.style.display = selectedSource === 'twitter' ? 'block' : 'none';
     
     if (selectedSource === 'stocktwits') {
         methodGroup.querySelectorAll('.option-btn').forEach(btn => {
@@ -221,6 +251,14 @@ function updateUI() {
         selectedMethod = 'selenium';
         limitsInfo.innerHTML = '<strong>StockTwits:</strong> Selenium, max 300 posts';
         limitInput.max = 300;
+    } else if (selectedSource === 'twitter') {
+        methodGroup.querySelectorAll('.option-btn').forEach(btn => {
+            btn.classList.toggle('disabled', btn.dataset.value === 'http');
+            btn.classList.toggle('active', btn.dataset.value === 'selenium');
+        });
+        selectedMethod = 'selenium';
+        limitsInfo.innerHTML = '<strong>Twitter:</strong> Recherche avancee, max 2000 posts';
+        limitInput.max = 2000;
     } else {
         methodGroup.querySelectorAll('.option-btn').forEach(btn => btn.classList.remove('disabled'));
         const max = selectedMethod === 'http' ? 1000 : 200;
@@ -239,6 +277,7 @@ document.querySelectorAll('.option-group').forEach(group => {
             if (group.id === 'source-group') selectedSource = btn.dataset.value;
             else if (group.id === 'method-group') selectedMethod = btn.dataset.value;
             else if (group.id === 'model-group') selectedModel = btn.dataset.value;
+            else if (group.id === 'twitter-sort-group') twitterSort = btn.dataset.value;
             
             updateUI();
         });
@@ -249,16 +288,42 @@ document.getElementById('analyze-btn').addEventListener('click', async () => {
     const select = document.getElementById('symbol');
     const opt = select.options[select.selectedIndex];
     let limit = parseInt(document.getElementById('limit').value);
-    const symbol = selectedSource === 'stocktwits' ? opt.dataset.stocktwits : opt.value;
+    let symbol = selectedSource === 'stocktwits' ? opt.dataset.stocktwits : opt.value;
+    
+    // For Twitter, use the crypto name as search term
+    if (selectedSource === 'twitter') {
+        symbol = opt.value;
+    }
     
     document.getElementById('loading').style.display = 'block';
     document.getElementById('results').style.display = 'none';
+
+    // Build request body
+    const body = { 
+        source: selectedSource, 
+        method: selectedMethod, 
+        model: selectedModel, 
+        crypto_id: opt.dataset.crypto, 
+        symbol, 
+        limit 
+    };
+    
+    // Add Twitter options if source is twitter
+    if (selectedSource === 'twitter') {
+        body.sort_mode = twitterSort;
+        const minLikes = parseInt(document.getElementById('twitter-min-likes').value);
+        if (minLikes > 0) body.min_likes = minLikes;
+        const startDate = document.getElementById('twitter-start-date').value;
+        const endDate = document.getElementById('twitter-end-date').value;
+        if (startDate) body.start_date = startDate;
+        if (endDate) body.end_date = endDate;
+    }
 
     try {
         const res = await fetch('/analyze', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ source: selectedSource, method: selectedMethod, model: selectedModel, crypto_id: opt.dataset.crypto, symbol, limit })
+            body: JSON.stringify(body)
         });
         const data = await res.json();
 

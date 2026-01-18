@@ -64,11 +64,20 @@ class ModelEnum(str, Enum):
 
 # ===================== MODELS =====================
 
+class TwitterSortEnum(str, Enum):
+    top = "top"
+    live = "live"
+
 class ScrapeRequest(BaseModel):
     source: SourceEnum = Field(default=SourceEnum.reddit)
     method: MethodEnum = Field(default=MethodEnum.http, description="http (rapide) ou selenium (lent)")
     symbol: str = Field(default="Bitcoin", description="Subreddit ou symbole StockTwits (BTC.X)")
-    limit: int = Field(default=50, ge=10, le=1000)
+    limit: int = Field(default=50, ge=10, le=2000)
+    # Twitter options (methode Jose)
+    min_likes: int | None = Field(default=None, description="Twitter: minimum likes")
+    start_date: str | None = Field(default=None, description="Twitter: date debut YYYY-MM-DD")
+    end_date: str | None = Field(default=None, description="Twitter: date fin YYYY-MM-DD")
+    sort_mode: TwitterSortEnum = Field(default=TwitterSortEnum.top, description="Twitter: top (populaires) ou live (recents)")
 
 class AnalyzeRequest(BaseModel):
     source: SourceEnum = Field(default=SourceEnum.reddit)
@@ -215,8 +224,9 @@ async def get_limits():
             "http": {"max": 0, "description": "Non disponible (Cloudflare)"}
         },
         "twitter": {
-            "selenium": {"max": 100, "description": "Comportement humain anti-detection"},
-            "http": {"max": 0, "description": "Non disponible (login requis)"}
+            "selenium_login": {"max": 2000, "description": "Avec cookies (recherche avancee, filtres date/likes)"},
+            "selenium": {"max": 100, "description": "Sans login (profils publics)"},
+            "filters": ["min_likes", "start_date", "end_date", "sort_mode (top/live)"]
         },
         "tiktok": {
             "selenium": {"max": 50, "description": "Expérimental - anti-bot très strict"},
@@ -254,10 +264,17 @@ async def scrape(req: ScrapeRequest):
         source_name = "StockTwits"
         method_used = "selenium"
     elif req.source == SourceEnum.twitter:
-        # Twitter = Selenium avec comportement humain
-        posts = scrape_twitter(req.symbol, limit=req.limit)
+        # Twitter = Selenium avec login (methode Jose)
+        posts = scrape_twitter(
+            req.symbol, 
+            limit=req.limit,
+            min_likes=req.min_likes,
+            start_date=req.start_date,
+            end_date=req.end_date,
+            sort_mode=req.sort_mode.value
+        )
         source_name = "Twitter"
-        method_used = "selenium"
+        method_used = "selenium_login" if posts else "selenium"
     elif req.source == SourceEnum.tiktok:
         # TikTok = Selenium (expérimental)
         posts = scrape_tiktok(req.symbol, limit=req.limit)

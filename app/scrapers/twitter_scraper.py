@@ -54,7 +54,8 @@ class TwitterConfig:
         min_likes: int = None,
         min_reposts: int = None,
         start_date: str = None,  # Format: YYYY-MM-DD
-        end_date: str = None     # Format: YYYY-MM-DD
+        end_date: str = None,    # Format: YYYY-MM-DD
+        sort_mode: str = "live"  # "live" (recents) ou "top" (populaires)
     ):
         self.query = query
         self.min_replies = min_replies
@@ -62,6 +63,7 @@ class TwitterConfig:
         self.min_reposts = min_reposts
         self.start_date = start_date
         self.end_date = end_date
+        self.sort_mode = sort_mode
     
     @property
     def search_url(self) -> str:
@@ -84,7 +86,7 @@ class TwitterConfig:
         if filters:
             base += "%20" + "%20".join(filters)
         
-        return f"{base}&src=typed_query&f=live"
+        return f"{base}&src=typed_query&f={self.sort_mode}"
 
 
 def save_cookies(driver):
@@ -335,7 +337,8 @@ def scrape_twitter(
     min_likes: int = None,
     min_replies: int = None,
     start_date: str = None,
-    end_date: str = None
+    end_date: str = None,
+    sort_mode: str = "top"  # "top" (populaires) ou "live" (recents)
 ) -> list:
     """
     Scrape Twitter/X pour les tweets crypto
@@ -354,6 +357,7 @@ def scrape_twitter(
         min_replies: Filtrer tweets avec minimum X replies  
         start_date: Date debut (YYYY-MM-DD)
         end_date: Date fin (YYYY-MM-DD)
+        sort_mode: "top" (populaires) ou "live" (recents)
     
     Returns:
         Liste de tweets
@@ -378,7 +382,8 @@ def scrape_twitter(
             min_likes=min_likes,
             min_replies=min_replies,
             start_date=start_date,
-            end_date=end_date
+            end_date=end_date,
+            sort_mode=sort_mode
         )
     
     # Sinon, mode sans login (profils publics)
@@ -417,11 +422,14 @@ def scrape_twitter_with_login(
     min_likes: int = None,
     min_replies: int = None,
     start_date: str = None,
-    end_date: str = None
+    end_date: str = None,
+    sort_mode: str = "top"
 ) -> list:
     """
     Scraper Twitter avec login (methode Jose)
     Utilise la recherche avancee pour scraper jusqu'a 2000 tweets
+    
+    sort_mode: "top" (populaires) ou "live" (recents)
     """
     posts = []
     seen_ids = set()
@@ -467,7 +475,8 @@ def scrape_twitter_with_login(
             min_likes=min_likes,
             min_replies=min_replies,
             start_date=start_date,
-            end_date=end_date
+            end_date=end_date,
+            sort_mode=sort_mode
         )
         
         search_url = config.search_url

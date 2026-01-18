@@ -224,7 +224,7 @@ CRYPTO_LIST = {
 LIMITS = {
     "Reddit": {"HTTP": get_reddit_limits()["http"], "Selenium": get_reddit_limits()["selenium"]},
     "StockTwits": {"Selenium": get_stocktwits_limits()["selenium"]},
-    "Twitter": {"Selenium": get_twitter_limits()["selenium"]},
+    "Twitter": {"Selenium": 100, "Login": 2000},  # Login = avec cookies (methode Jose)
     "Telegram": {"Simple": get_telegram_limits()["simple"], "Paginé": get_telegram_limits()["paginated"]}
 }
 
@@ -251,15 +251,23 @@ def get_model(name):
         tok, mod = get_cryptobert()
         return tok, mod, analyze_cryptobert
 
-def scrape_data(source, config, limit, method, telegram_channel=None, crypto_name=None):
+def scrape_data(source, config, limit, method, telegram_channel=None, crypto_name=None,
+                twitter_min_likes=None, twitter_start_date=None, twitter_end_date=None, twitter_sort="top"):
     if source == "Reddit":
         posts = scrape_reddit(config['sub'], limit, method=method.lower())
         save_posts(posts, source="reddit", method=method.lower())
         return posts
     elif source == "Twitter":
         query = crypto_name or config.get('sub', 'Bitcoin')
-        posts = scrape_twitter(query, limit)
-        save_posts(posts, source="twitter", method="selenium")
+        posts = scrape_twitter(
+            query, limit,
+            min_likes=twitter_min_likes,
+            start_date=twitter_start_date,
+            end_date=twitter_end_date,
+            sort_mode=twitter_sort
+        )
+        method_used = "selenium_login" if posts else "selenium"
+        save_posts(posts, source="twitter", method=method_used)
         return posts
     elif source == "Telegram":
         if limit > 30:
@@ -341,13 +349,27 @@ def page_dashboard():
             max_limit = LIMITS["Reddit"][method]
             telegram_channel = None
         elif source == "Twitter":
-            method = "Selenium"
-            max_limit = LIMITS["Twitter"]["Selenium"]
+            method = st.radio("Mode", ["Login", "Selenium"], horizontal=True, key="dash_tw_method",
+                             help="Login: recherche avancee (2000 tweets) | Selenium: profils publics (100 tweets)")
+            max_limit = LIMITS["Twitter"][method]
             telegram_channel = None
+            
+            # Options avancees Twitter (methode Jose)
+            with st.expander("Options Twitter avancees"):
+                tw_sort = st.radio("Tri", ["top", "live"], horizontal=True, key="dash_tw_sort",
+                                  help="top: populaires | live: recents")
+                tw_min_likes = st.number_input("Min likes", min_value=0, value=0, key="dash_tw_likes",
+                                              help="0 = pas de filtre")
+                col_d1, col_d2 = st.columns(2)
+                with col_d1:
+                    tw_start = st.date_input("Date debut", value=None, key="dash_tw_start")
+                with col_d2:
+                    tw_end = st.date_input("Date fin", value=None, key="dash_tw_end")
+            
             st.markdown("""
             <div class="info-box">
                 <strong>Twitter/X</strong><br>
-                <small>Scrape comptes crypto influents (sans login)</small>
+                <small>Login: recherche avancee avec filtres | Selenium: profils publics</small>
             </div>
             """, unsafe_allow_html=True)
         elif source == "Telegram":
@@ -384,9 +406,19 @@ def page_dashboard():
         
         analyze = st.button("Analyser", use_container_width=True, key="dash_analyze")
     
+    # Build Twitter options if applicable
+    twitter_opts = None
+    if source == "Twitter":
+        twitter_opts = {
+            'sort': tw_sort if 'tw_sort' in dir() else 'top',
+            'min_likes': tw_min_likes if tw_min_likes > 0 else None,
+            'start_date': tw_start.strftime('%Y-%m-%d') if tw_start else None,
+            'end_date': tw_end.strftime('%Y-%m-%d') if tw_end else None
+        }
+    
     with col2:
         if analyze:
-            run_analysis(crypto, config, source, method, model, limit, telegram_channel, crypto)
+            run_analysis(crypto, config, source, method, model, limit, telegram_channel, crypto, twitter_opts)
         else:
             st.markdown("""
             <div style="
@@ -405,9 +437,15 @@ def page_dashboard():
             """, unsafe_allow_html=True)
 
 
-def run_analysis(crypto, config, source, method, model, limit, telegram_channel=None, crypto_name=None):
+def run_analysis(crypto, config, source, method, model, limit, telegram_channel=None, crypto_name=None,
+                 twitter_opts=None):
     with st.spinner(f"Scraping {source}..."):
-        posts = scrape_data(source, config, limit, method, telegram_channel, crypto_name)
+        tw_opts = twitter_opts or {}
+        posts = scrape_data(source, config, limit, method, telegram_channel, crypto_name,
+                           twitter_min_likes=tw_opts.get('min_likes'),
+                           twitter_start_date=tw_opts.get('start_date'),
+                           twitter_end_date=tw_opts.get('end_date'),
+                           twitter_sort=tw_opts.get('sort', 'top'))
     
     if not posts:
         st.error("Aucun post récupéré")
