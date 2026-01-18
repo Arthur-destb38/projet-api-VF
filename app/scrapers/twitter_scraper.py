@@ -1,12 +1,16 @@
 """
-Twitter/X Scraper - Selenium avec comportement humain
-Scrape les tweets crypto sans API (gratuit)
+Twitter/X Scraper - Selenium avec login (methode Jose)
+Scrape les tweets crypto via recherche avancee
 """
 
 import time
 import random
 import re
+import urllib.parse
+import os
+import json
 from datetime import datetime
+from pathlib import Path
 
 try:
     from app.storage import save_posts
@@ -26,15 +30,221 @@ try:
 except ImportError:
     SELENIUM_OK = False
 
-# Limites conservatrices pour eviter le ban
+# Limites avec login (methode Jose)
 LIMITS = {
-    "selenium": 100  # Twitter est tres strict
+    "selenium": 2000,  # Avec login on peut aller jusqu'a 2000
+    "no_login": 100    # Sans login, limite aux profils publics
 }
+
+# Fichier pour sauvegarder les cookies
+COOKIES_FILE = Path(__file__).parent.parent.parent / "data" / "twitter_cookies.json"
 
 
 def get_limits():
     """Retourne les limites par methode"""
     return LIMITS
+
+
+class TwitterConfig:
+    """Configuration pour la recherche Twitter (style Jose)"""
+    def __init__(
+        self,
+        query: str,
+        min_replies: int = None,
+        min_likes: int = None,
+        min_reposts: int = None,
+        start_date: str = None,  # Format: YYYY-MM-DD
+        end_date: str = None     # Format: YYYY-MM-DD
+    ):
+        self.query = query
+        self.min_replies = min_replies
+        self.min_likes = min_likes
+        self.min_reposts = min_reposts
+        self.start_date = start_date
+        self.end_date = end_date
+    
+    @property
+    def search_url(self) -> str:
+        """Construct the advanced search URL (code Jose)"""
+        encoded_query = urllib.parse.quote(self.query)
+        base = f"https://x.com/search?q={encoded_query}"
+        
+        filters = []
+        if self.min_replies:
+            filters.append(f"min_replies%3A{self.min_replies}")
+        if self.min_likes:
+            filters.append(f"min_faves%3A{self.min_likes}")
+        if self.min_reposts:
+            filters.append(f"min_retweets%3A{self.min_reposts}")
+        if self.start_date:
+            filters.append(f"since%3A{self.start_date}")
+        if self.end_date:
+            filters.append(f"until%3A{self.end_date}")
+        
+        if filters:
+            base += "%20" + "%20".join(filters)
+        
+        return f"{base}&src=typed_query&f=live"
+
+
+def save_cookies(driver):
+    """Sauvegarder les cookies pour reutilisation"""
+    cookies = driver.get_cookies()
+    COOKIES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(COOKIES_FILE, 'w') as f:
+        json.dump(cookies, f)
+    print(f"Cookies sauvegardes dans {COOKIES_FILE}")
+
+
+def load_cookies(driver):
+    """Charger les cookies sauvegardes"""
+    if COOKIES_FILE.exists():
+        with open(COOKIES_FILE, 'r') as f:
+            cookies = json.load(f)
+        for cookie in cookies:
+            try:
+                driver.add_cookie(cookie)
+            except Exception:
+                pass
+        return True
+    return False
+
+
+def twitter_login(driver, username: str, password: str) -> bool:
+    """
+    Se connecter a Twitter/X
+    
+    Args:
+        driver: Selenium WebDriver
+        username: Nom d'utilisateur ou email Twitter
+        password: Mot de passe
+    
+    Returns:
+        True si login reussi
+    """
+    try:
+        print("Twitter: Connexion en cours...")
+        
+        # Aller sur la page de login
+        driver.get("https://x.com/i/flow/login")
+        human_delay(3, 5)
+        
+        # Entrer le username
+        username_input = WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, 'input[autocomplete="username"]'))
+        )
+        
+        # Taper comme un humain
+        for char in username:
+            username_input.send_keys(char)
+            time.sleep(random.uniform(0.05, 0.15))
+        
+        human_delay(0.5, 1)
+        
+        # Cliquer sur Next
+        next_buttons = driver.find_elements(By.XPATH, "//span[contains(text(), 'Next')]")
+        if next_buttons:
+            next_buttons[0].click()
+        else:
+            username_input.send_keys(Keys.RETURN)
+        
+        human_delay(2, 3)
+        
+        # Parfois Twitter demande une verification (email ou username)
+        page_text = driver.page_source.lower()
+        if "verify" in page_text or "confirm" in page_text:
+            # Essayer de trouver un autre input
+            verify_inputs = driver.find_elements(By.CSS_SELECTOR, 'input[data-testid="ocfEnterTextTextInput"]')
+            if verify_inputs:
+                for char in username:
+                    verify_inputs[0].send_keys(char)
+                    time.sleep(random.uniform(0.05, 0.15))
+                verify_inputs[0].send_keys(Keys.RETURN)
+                human_delay(2, 3)
+        
+        # Entrer le password
+        password_input = WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="password"]'))
+        )
+        
+        for char in password:
+            password_input.send_keys(char)
+            time.sleep(random.uniform(0.05, 0.15))
+        
+        human_delay(0.5, 1)
+        
+        # Cliquer sur Login
+        login_buttons = driver.find_elements(By.XPATH, "//span[contains(text(), 'Log in')]")
+        if login_buttons:
+            login_buttons[0].click()
+        else:
+            password_input.send_keys(Keys.RETURN)
+        
+        human_delay(4, 6)
+        
+        # Verifier si login reussi
+        current_url = driver.current_url
+        if "home" in current_url or "x.com" in current_url:
+            # Verifier qu'on n'est plus sur la page de login
+            if "login" not in current_url and "flow" not in current_url:
+                print("Twitter: Connexion reussie!")
+                save_cookies(driver)
+                return True
+        
+        # Verifier si on est connecte autrement
+        page_source = driver.page_source
+        if "Home" in page_source and "Post" in page_source:
+            print("Twitter: Connexion reussie!")
+            save_cookies(driver)
+            return True
+        
+        print("Twitter: Echec connexion - verifier les identifiants")
+        return False
+        
+    except Exception as e:
+        print(f"Twitter login error: {e}")
+        return False
+
+
+def is_logged_in(driver) -> bool:
+    """Verifier si on est connecte"""
+    try:
+        driver.get("https://x.com/home")
+        human_delay(4, 5)
+        
+        page_source = driver.page_source.lower()
+        
+        # Indicateurs de NON connexion (prioritaires)
+        logged_out_indicators = [
+            "google_sign_in", "apple_sign_in", "create your account", 
+            "sign up", "don't have an account", "log in to x",
+            "sign in to x", "join x today"
+        ]
+        
+        for ind in logged_out_indicators:
+            if ind in page_source:
+                return False
+        
+        # Indicateurs de connexion
+        logged_in_indicators = [
+            "tweettext", "tweet-text", "data-testid=\"tweet\"",
+            "primarycolumn", "sidebar", "compose-tweet"
+        ]
+        
+        for ind in logged_in_indicators:
+            if ind in page_source:
+                return True
+        
+        # Verifier l'URL
+        if "home" in driver.current_url and "login" not in driver.current_url:
+            # Double check - chercher le bouton Post/Tweet
+            if "post" in page_source or "tweet" in page_source:
+                return True
+        
+        return False
+        
+    except Exception:
+        return False
 
 
 def human_delay(min_sec=0.5, max_sec=1.5):
@@ -62,7 +272,7 @@ def setup_driver():
     """Configure Chrome avec options anti-detection"""
     options = Options()
     
-    # Mode headless moderne
+    # Mode headless
     options.add_argument("--headless=new")
     
     # Options de base
@@ -116,18 +326,34 @@ def setup_driver():
         return None
 
 
-def scrape_twitter(query: str, limit: int = 50, method: str = "selenium") -> list:
+def scrape_twitter(
+    query: str, 
+    limit: int = 50, 
+    method: str = "selenium",
+    username: str = None,
+    password: str = None,
+    min_likes: int = None,
+    min_replies: int = None,
+    start_date: str = None,
+    end_date: str = None
+) -> list:
     """
     Scrape Twitter/X pour les tweets crypto
     
-    Strategie:
-    1. Scraper les profils publics d'influenceurs crypto (pas de login)
-    2. Filtrer par mot-cle
+    2 modes:
+    1. AVEC LOGIN (methode Jose): Utilise la recherche avancee, jusqu'a 2000 tweets
+    2. SANS LOGIN: Scrape les profils publics, max 100 tweets
     
     Args:
         query: Terme de recherche (ex: "Bitcoin", "$BTC", "crypto")
-        limit: Nombre de tweets souhaites (max 100)
-        method: Ignore (toujours selenium)
+        limit: Nombre de tweets souhaites
+        method: "selenium" (avec ou sans login)
+        username: Username Twitter (optionnel, pour mode login)
+        password: Password Twitter (optionnel, pour mode login)
+        min_likes: Filtrer tweets avec minimum X likes
+        min_replies: Filtrer tweets avec minimum X replies  
+        start_date: Date debut (YYYY-MM-DD)
+        end_date: Date fin (YYYY-MM-DD)
     
     Returns:
         Liste de tweets
@@ -136,12 +362,32 @@ def scrape_twitter(query: str, limit: int = 50, method: str = "selenium") -> lis
         print("Selenium non installe")
         return []
     
-    limit = min(limit, LIMITS["selenium"])
+    # Recuperer credentials depuis env si pas fournis
+    if not username:
+        username = os.environ.get("TWITTER_USERNAME")
+    if not password:
+        password = os.environ.get("TWITTER_PASSWORD")
+    
+    # Si on a des credentials, utiliser le mode login (Jose)
+    if username and password:
+        return scrape_twitter_with_login(
+            query=query,
+            limit=min(limit, LIMITS["selenium"]),
+            username=username,
+            password=password,
+            min_likes=min_likes,
+            min_replies=min_replies,
+            start_date=start_date,
+            end_date=end_date
+        )
+    
+    # Sinon, mode sans login (profils publics)
+    limit = min(limit, LIMITS["no_login"])
     
     # Mapper query vers comptes influents
     crypto_accounts = get_crypto_accounts(query)
     
-    print(f"Twitter: Scraping {len(crypto_accounts)} comptes crypto pour '{query}'...")
+    print(f"Twitter (sans login): Scraping {len(crypto_accounts)} comptes crypto pour '{query}'...")
     
     all_posts = []
     seen_ids = set()
@@ -161,6 +407,130 @@ def scrape_twitter(query: str, limit: int = 50, method: str = "selenium") -> lis
     
     print(f"Twitter: Total {len(all_posts)} tweets scraped")
     return all_posts
+
+
+def scrape_twitter_with_login(
+    query: str,
+    limit: int,
+    username: str,
+    password: str,
+    min_likes: int = None,
+    min_replies: int = None,
+    start_date: str = None,
+    end_date: str = None
+) -> list:
+    """
+    Scraper Twitter avec login (methode Jose)
+    Utilise la recherche avancee pour scraper jusqu'a 2000 tweets
+    """
+    posts = []
+    seen_ids = set()
+    
+    driver = setup_driver()
+    if not driver:
+        return []
+    
+    try:
+        # Essayer de charger les cookies existants
+        driver.get("https://x.com")
+        human_delay(2, 3)
+        
+        cookies_loaded = load_cookies(driver)
+        if cookies_loaded:
+            print("Twitter: Cookies charges, verification...")
+            driver.refresh()
+            human_delay(3, 4)
+        
+        # Verifier si on est connecte
+        logged_in = is_logged_in(driver)
+        
+        if not logged_in:
+            # Login necessaire
+            print("Twitter: Login necessaire...")
+            if not twitter_login(driver, username, password):
+                print("Twitter: Echec login, passage en mode sans login")
+                driver.quit()
+                return scrape_twitter(query, min(limit, 100))  # Fallback
+            
+            # Re-verifier apres login
+            logged_in = is_logged_in(driver)
+            if not logged_in:
+                print("Twitter: Login semble avoir echoue")
+                driver.quit()
+                return []
+        
+        print("Twitter: Connecte! Lancement recherche avancee...")
+        
+        # Construire l'URL de recherche (code Jose)
+        config = TwitterConfig(
+            query=query,
+            min_likes=min_likes,
+            min_replies=min_replies,
+            start_date=start_date,
+            end_date=end_date
+        )
+        
+        search_url = config.search_url
+        print(f"Twitter: URL recherche: {search_url}")
+        
+        driver.get(search_url)
+        human_delay(4, 6)
+        
+        # Verifier si la recherche fonctionne
+        if is_login_wall(driver):
+            print("Twitter: Session expiree, re-login...")
+            if twitter_login(driver, username, password):
+                driver.get(search_url)
+                human_delay(4, 6)
+            else:
+                driver.quit()
+                return []
+        
+        # Scroll et collecter les tweets
+        scroll_count = 0
+        max_scrolls = min(limit // 10, 200)  # Environ 10 tweets par scroll
+        no_new_tweets_count = 0
+        
+        print(f"Twitter: Scraping jusqu'a {limit} tweets (max {max_scrolls} scrolls)...")
+        
+        while len(posts) < limit and scroll_count < max_scrolls:
+            # Parser les tweets actuels
+            new_posts = parse_tweets(driver.page_source, seen_ids, "")
+            
+            if new_posts:
+                posts.extend(new_posts)
+                no_new_tweets_count = 0
+                print(f"  Scroll {scroll_count + 1}: {len(posts)} tweets total")
+            else:
+                no_new_tweets_count += 1
+                if no_new_tweets_count >= 5:
+                    print("Twitter: Plus de nouveaux tweets trouves")
+                    break
+            
+            # Scroll humain
+            human_scroll(driver, distance=random.randint(500, 900))
+            human_delay(1.5, 3)
+            
+            scroll_count += 1
+            
+            # Pause plus longue tous les 20 scrolls pour eviter detection
+            if scroll_count % 20 == 0:
+                print(f"  Pause anti-ban... ({len(posts)} tweets)")
+                human_delay(5, 10)
+        
+        posts = posts[:limit]
+        
+        if save_posts and posts:
+            save_posts(posts, source="twitter", method="selenium_login")
+        
+        print(f"Twitter: Total {len(posts)} tweets scraped avec login")
+        
+    except Exception as e:
+        print(f"Twitter scrape error: {e}")
+    finally:
+        driver.quit()
+    
+    return posts
 
 
 def get_crypto_accounts(query: str) -> list:
