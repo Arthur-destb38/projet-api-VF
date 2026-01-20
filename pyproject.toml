@@ -24,6 +24,7 @@ statsmodels = "^0.14.6"
 undetected-chromedriver = "^3.5.5"
 setuptools = "^80.9.0"
 google-api-python-client = "^2.188.0"
+python-dotenv = "^1.2.1"
 
 [build-system]
 requires = ["poetry-core"]

@@ -427,7 +427,9 @@ def scrape_youtube(
     method: str = "auto",
     api_key: str = None,
     start_date: str = None,  # Format: YYYY-MM-DD
-    end_date: str = None
+    end_date: str = None,
+    video_url: str = None,   # URL specifique d'une video
+    order: str = "relevance"  # relevance ou time
 ) -> List[Dict]:
     """
     Fonction principale pour scraper YouTube
@@ -439,10 +441,18 @@ def scrape_youtube(
         api_key: Cle API YouTube (optionnel)
         start_date: Date debut (YYYY-MM-DD)
         end_date: Date fin (YYYY-MM-DD)
+        video_url: URL d'une video specifique (optionnel)
+        order: Tri des commentaires (relevance/time)
     
     Returns:
         Liste de commentaires
     """
+    import os
+    
+    # Si URL video specifique fournie, scraper directement cette video
+    if video_url:
+        return scrape_single_video(video_url, limit, api_key, order)
+    
     # Convertir dates au format ISO si fournies
     published_after = None
     published_before = None
@@ -454,7 +464,6 @@ def scrape_youtube(
     
     # Choisir la methode
     if method == "auto":
-        import os
         if api_key or os.environ.get("YOUTUBE_API_KEY"):
             method = "api"
         else:
@@ -470,6 +479,130 @@ def scrape_youtube(
         )
     else:
         return scrape_youtube_selenium(query, min(limit, LIMITS["selenium"]))
+
+
+def scrape_single_video(video_url: str, limit: int = 100, api_key: str = None, order: str = "relevance") -> List[Dict]:
+    """
+    Scrape les commentaires d'une video YouTube specifique
+    
+    Args:
+        video_url: URL de la video (ex: https://youtube.com/watch?v=xxxxx)
+        limit: Nombre max de commentaires
+        api_key: Cle API YouTube
+        order: Tri (relevance ou time)
+    """
+    import os
+    import re
+    
+    # Extraire video_id de l'URL
+    video_id = None
+    patterns = [
+        r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([a-zA-Z0-9_-]{11})',
+        r'v=([a-zA-Z0-9_-]{11})',
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, video_url)
+        if match:
+            video_id = match.group(1)
+            break
+    
+    if not video_id:
+        print(f"YouTube: Impossible d'extraire video_id de {video_url}")
+        return []
+    
+    print(f"YouTube: Scraping video {video_id}...")
+    
+    # Utiliser API si disponible
+    if not api_key:
+        api_key = os.environ.get("YOUTUBE_API_KEY")
+    
+    if api_key and YOUTUBE_API_OK:
+        try:
+            youtube = build('youtube', 'v3', developerKey=api_key)
+            
+            # Info video
+            video_info = youtube.videos().list(part='snippet,statistics', id=video_id).execute()
+            video_title = ""
+            if video_info.get('items'):
+                v = video_info['items'][0]
+                video_title = v['snippet'].get('title', '')
+                print(f"  Titre: {video_title[:50]}...")
+                print(f"  Commentaires: {v['statistics'].get('commentCount', 'N/A')}")
+            
+            # Recuperer commentaires
+            comments = []
+            next_page = None
+            
+            while len(comments) < limit:
+                try:
+                    request = youtube.commentThreads().list(
+                        part='snippet',
+                        videoId=video_id,
+                        maxResults=min(100, limit - len(comments)),
+                        order=order,
+                        textFormat='plainText',
+                        pageToken=next_page
+                    )
+                    response = request.execute()
+                    
+                    for item in response.get('items', []):
+                        snippet = item['snippet']['topLevelComment']['snippet']
+                        comments.append({
+                            'id': item['id'],
+                            'source': 'youtube',
+                            'method': 'api',
+                            'title': snippet.get('textDisplay', '')[:500],
+                            'text': snippet.get('textDisplay', ''),
+                            'score': snippet.get('likeCount', 0),
+                            'created_utc': snippet.get('publishedAt'),
+                            'author': snippet.get('authorDisplayName'),
+                            'video_id': video_id,
+                            'video_url': video_url,
+                            'video_title': video_title,
+                            'human_label': None,
+                            'scraped_at': datetime.now().isoformat()
+                        })
+                    
+                    next_page = response.get('nextPageToken')
+                    if not next_page:
+                        break
+                        
+                except HttpError as e:
+                    if 'commentsDisabled' in str(e):
+                        print(f"  Commentaires desactives pour cette video")
+                    else:
+                        print(f"  Erreur API: {e}")
+                    break
+            
+            print(f"YouTube: {len(comments)} commentaires recuperes")
+            return comments
+            
+        except Exception as e:
+            print(f"YouTube API Error: {e}")
+            return []
+    
+    else:
+        # Fallback Selenium
+        print("YouTube: API non disponible, utilisation Selenium...")
+        if SELENIUM_OK:
+            seen_ids = set()
+            options = Options()
+            options.add_argument('--headless')
+            options.add_argument('--no-sandbox')
+            options.add_argument('--disable-dev-shm-usage')
+            options.add_argument('--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36')
+            
+            try:
+                driver = webdriver.Chrome(options=options)
+                comments = scrape_video_comments_selenium(driver, video_url, seen_ids, limit)
+                driver.quit()
+                return comments
+            except Exception as e:
+                print(f"Selenium Error: {e}")
+                return []
+        
+        return []
 
 
 # ==================== TEST ====================

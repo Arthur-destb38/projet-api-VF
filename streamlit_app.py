@@ -1212,6 +1212,250 @@ Exports CSV/JSON: data/exports/
     """)
 
 
+# ============ PAGE SCRAPING ============
+
+def page_scraping():
+    """Page dédiée au scraping de données"""
+    st.markdown("""
+    <div style="margin-bottom: 1.5rem;">
+        <h2 style="font-size: 1.8rem; font-weight: 600; color: #e0e7ff; margin-bottom: 0.3rem;">Data Scraper</h2>
+        <p style="color: #64748b; font-size: 0.9rem;">Collecte de données multi-sources</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Sources avec icônes
+    sources = {
+        "Reddit": {"icon": "🔴", "max": 1000, "desc": "Subreddits crypto"},
+        "Twitter": {"icon": "🐦", "max": 2000, "desc": "Recherche avancée"},
+        "YouTube": {"icon": "▶️", "max": 500, "desc": "Commentaires vidéos"},
+        "Telegram": {"icon": "✈️", "max": 500, "desc": "Channels publics"},
+        "StockTwits": {"icon": "📈", "max": 300, "desc": "Labels inclus"},
+    }
+    
+    # Sélection de la source
+    cols = st.columns(5)
+    if 'scrape_source' not in st.session_state:
+        st.session_state.scrape_source = "Reddit"
+    
+    for i, (name, info) in enumerate(sources.items()):
+        with cols[i]:
+            selected = st.session_state.scrape_source == name
+            border_color = "#6366f1" if selected else "rgba(100,100,140,0.3)"
+            bg = "rgba(99, 102, 241, 0.1)" if selected else "rgba(30, 30, 50, 0.5)"
+            
+            st.markdown(f"""
+            <div style="
+                background: {bg};
+                border: 2px solid {border_color};
+                border-radius: 12px;
+                padding: 16px 8px;
+                text-align: center;
+            ">
+                <div style="font-size: 1.5rem;">{info['icon']}</div>
+                <div style="font-weight: 600; color: {'#fff' if selected else '#a5b4fc'}; margin-top: 4px;">{name}</div>
+                <div style="font-size: 0.7rem; color: #64748b; margin-top: 2px;">{info['desc']}</div>
+                <div style="font-size: 0.65rem; color: #475569; margin-top: 2px;">{info['max']} max</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            btn_label = "Actif" if selected else "Sélectionner"
+            if st.button(btn_label, key=f"src_{name}", use_container_width=True, disabled=selected):
+                st.session_state.scrape_source = name
+                st.session_state.pop('scrape_results', None)
+                st.rerun()
+    
+    st.markdown("---")
+    
+    # Configuration selon la source
+    source = st.session_state.scrape_source
+    
+    st.markdown(f"### Configuration {source}")
+    
+    if source == "Reddit":
+        c1, c2 = st.columns(2)
+        with c1:
+            crypto = st.selectbox("Cryptomonnaie", list(CRYPTO_LIST.keys()), key="scr_crypto")
+        with c2:
+            limit = st.slider("Nombre de posts", 10, 1000, 100, key="scr_limit")
+        
+        if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
+            config = CRYPTO_LIST[crypto]
+            with st.spinner("Scraping Reddit en cours..."):
+                posts = scrape_reddit(config['sub'], limit, method='http')
+            st.session_state.scrape_results = {"posts": posts, "source": "reddit", "crypto": crypto}
+    
+    elif source == "Twitter":
+        c1, c2 = st.columns(2)
+        with c1:
+            crypto = st.selectbox("Cryptomonnaie", list(CRYPTO_LIST.keys()), key="scr_crypto")
+            limit = st.slider("Nombre de tweets", 10, 2000, 100, key="scr_limit")
+        with c2:
+            sort_mode = st.selectbox("Tri", ["top", "live"], format_func=lambda x: "Populaires" if x == "top" else "Récents", key="scr_sort")
+            min_likes = st.number_input("Minimum de likes", 0, 10000, 0, key="scr_likes")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            start_date = st.date_input("Date de début (optionnel)", value=None, key="scr_start")
+        with c2:
+            end_date = st.date_input("Date de fin (optionnel)", value=None, key="scr_end")
+        
+        if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
+            config = CRYPTO_LIST[crypto]
+            with st.spinner("Scraping Twitter en cours..."):
+                posts = scrape_twitter(
+                    config.get('sub', crypto), limit,
+                    min_likes=min_likes if min_likes > 0 else None,
+                    start_date=start_date.strftime('%Y-%m-%d') if start_date else None,
+                    end_date=end_date.strftime('%Y-%m-%d') if end_date else None,
+                    sort_mode=sort_mode
+                )
+            st.session_state.scrape_results = {"posts": posts, "source": "twitter", "crypto": crypto}
+    
+    elif source == "YouTube":
+        try:
+            from app.scrapers.youtube_scraper import scrape_youtube
+            api_key = os.environ.get('YOUTUBE_API_KEY', '')
+            
+            url = st.text_input("URL de la vidéo YouTube", placeholder="https://youtube.com/watch?v=...", key="scr_url")
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                limit = st.slider("Nombre de commentaires", 10, 500, 100, key="scr_limit")
+            with c2:
+                order = st.selectbox("Tri", ["relevance", "time"], format_func=lambda x: "Populaires" if x == "relevance" else "Récents", key="scr_order")
+            
+            if api_key:
+                st.success("Clé API YouTube configurée")
+            else:
+                st.warning("Clé API manquante - ajoutez YOUTUBE_API_KEY dans .env")
+            
+            if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
+                if not url:
+                    st.error("Veuillez entrer une URL YouTube")
+                else:
+                    with st.spinner("Scraping YouTube en cours..."):
+                        posts = scrape_youtube("", limit, method="api", video_url=url, order=order)
+                    st.session_state.scrape_results = {"posts": posts, "source": "youtube", "crypto": "YouTube"}
+        except ImportError:
+            st.error("Module YouTube non disponible")
+    
+    elif source == "Telegram":
+        c1, c2 = st.columns(2)
+        with c1:
+            channel = st.selectbox("Channel", list(TELEGRAM_CHANNELS.keys()), format_func=lambda x: f"@{x}", key="scr_channel")
+        with c2:
+            limit = st.slider("Nombre de messages", 10, 500, 100, key="scr_limit")
+        
+        st.caption(f"Description: {TELEGRAM_CHANNELS[channel]}")
+        
+        if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
+            with st.spinner("Scraping Telegram en cours..."):
+                if limit > 30:
+                    posts = scrape_telegram_paginated(channel, limit)
+                else:
+                    posts = scrape_telegram_simple(channel, limit)
+                for p in posts:
+                    p['title'] = p.get('text', '')
+            st.session_state.scrape_results = {"posts": posts, "source": "telegram", "crypto": channel}
+    
+    elif source == "StockTwits":
+        c1, c2 = st.columns(2)
+        with c1:
+            crypto = st.selectbox("Cryptomonnaie", list(CRYPTO_LIST.keys()), key="scr_crypto")
+        with c2:
+            limit = st.slider("Nombre de posts", 10, 300, 100, key="scr_limit")
+        
+        st.info("Les labels Bullish/Bearish sont inclus automatiquement")
+        
+        if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
+            config = CRYPTO_LIST[crypto]
+            with st.spinner("Scraping StockTwits en cours..."):
+                posts = scrape_stocktwits(config['stocktwits'], limit)
+            st.session_state.scrape_results = {"posts": posts, "source": "stocktwits", "crypto": crypto}
+    
+    # Affichage des résultats
+    st.markdown("---")
+    
+    if 'scrape_results' in st.session_state and st.session_state.scrape_results:
+        data = st.session_state.scrape_results
+        posts = data['posts']
+        
+        if not posts:
+            st.error("Aucun post récupéré")
+        else:
+            # Stats
+            labeled = sum(1 for p in posts if p.get('human_label'))
+            with_score = sum(1 for p in posts if p.get('score', 0) > 0)
+            
+            st.markdown(f"""
+            <div style="display: flex; gap: 16px; margin-bottom: 16px;">
+                <div style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.1)); padding: 14px 24px; border-radius: 12px; border: 1px solid rgba(99, 102, 241, 0.3);">
+                    <span style="font-size: 1.8rem; font-weight: 700; color: #a5b4fc;">{len(posts)}</span>
+                    <span style="color: #94a3b8; font-size: 0.9rem; margin-left: 8px;">posts récupérés</span>
+                </div>
+                <div style="background: rgba(74, 222, 128, 0.1); padding: 14px 20px; border-radius: 12px; border: 1px solid rgba(74, 222, 128, 0.2);">
+                    <span style="color: #4ade80; font-weight: 600;">{labeled}</span>
+                    <span style="color: #64748b; font-size: 0.85rem;"> avec label</span>
+                </div>
+                <div style="background: rgba(251, 191, 36, 0.1); padding: 14px 20px; border-radius: 12px; border: 1px solid rgba(251, 191, 36, 0.2);">
+                    <span style="color: #fbbf24; font-weight: 600;">{with_score}</span>
+                    <span style="color: #64748b; font-size: 0.85rem;"> avec score</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Actions
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                if st.button("Sauvegarder en base", use_container_width=True, type="primary"):
+                    result = save_posts(posts, source=data['source'], method="scraper")
+                    st.success(f"{result['inserted']} posts sauvegardés")
+            with c2:
+                if st.button("Envoyer vers Analyse", use_container_width=True):
+                    st.session_state['analyze_data'] = posts
+                    st.info("Données prêtes pour l'analyse")
+            with c3:
+                csv_data = pd.DataFrame(posts).to_csv(index=False)
+                st.download_button("Exporter CSV", csv_data, f"{data['source']}_data.csv", use_container_width=True)
+            
+            # Tableau
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            def safe_date(val):
+                if not val:
+                    return '-'
+                if isinstance(val, (int, float)):
+                    try:
+                        return datetime.fromtimestamp(val).strftime('%Y-%m-%d')
+                    except:
+                        return '-'
+                return str(val)[:10] if len(str(val)) > 10 else str(val)
+            
+            df = pd.DataFrame([{
+                "Texte": (p.get('title') or p.get('text', ''))[:100] + "..." if len(p.get('title') or p.get('text', '')) > 100 else (p.get('title') or p.get('text', '')),
+                "Score": p.get('score', 0),
+                "Label": p.get('human_label') or '-',
+                "Auteur": (p.get('author') or '-')[:15],
+                "Date": safe_date(p.get('created_utc'))
+            } for p in posts[:50]])
+            
+            st.dataframe(df, use_container_width=True, height=400)
+            
+            if len(posts) > 50:
+                st.caption(f"Affichage de 50 posts sur {len(posts)}")
+    else:
+        st.markdown("""
+        <div style="
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            padding: 60px 20px; background: rgba(30, 30, 50, 0.3); border-radius: 16px;
+            border: 1px dashed rgba(99, 102, 241, 0.3);
+        ">
+            <div style="color: #64748b; font-size: 1rem;">Les résultats apparaîtront ici</div>
+            <div style="color: #475569; font-size: 0.85rem; margin-top: 8px;">Sélectionnez une source et lancez le scraping</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+
 # ============ MAIN ============
 
 def main():
@@ -1228,11 +1472,13 @@ def main():
         
         page = st.radio(
             "Navigation",
-            ["Dashboard", "Comparaison", "Multi-crypto", "Économétrie", "Données Stockées", "Méthodologie"],
+            ["🔍 Scraping", "📊 Dashboard", "⚖️ Comparaison", "🪙 Multi-crypto", "📈 Économétrie", "💾 Données", "📖 Méthodologie"],
             label_visibility="collapsed"
         )
     
-    if "Dashboard" in page:
+    if "Scraping" in page:
+        page_scraping()
+    elif "Dashboard" in page:
         page_dashboard()
     elif "Comparaison" in page:
         page_compare()
@@ -1242,7 +1488,7 @@ def main():
         page_econometrie()
     elif "Données" in page:
         page_stored_data()
-    else:
+    elif "Méthodologie" in page:
         page_methodo()
 
 
