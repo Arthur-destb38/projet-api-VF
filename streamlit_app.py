@@ -11,6 +11,10 @@ import plotly.graph_objects as go
 from datetime import datetime
 import sys
 import os
+from dotenv import load_dotenv
+
+# Charger les variables d'environnement
+load_dotenv()
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -74,7 +78,7 @@ st.markdown("""
         padding: 24px;
         margin: 8px 0;
         backdrop-filter: blur(10px);
-    }
+    }tx
     
     .metric-value {
         font-family: 'JetBrains Mono', monospace;
@@ -1227,7 +1231,7 @@ def page_scraping():
     sources = {
         "Reddit": {"icon": "🔴", "max": 1000, "desc": "Subreddits crypto"},
         "Twitter": {"icon": "🐦", "max": 2000, "desc": "Recherche avancée"},
-        "YouTube": {"icon": "▶️", "max": 500, "desc": "Commentaires vidéos"},
+        "YouTube": {"icon": "▶️", "max": 5000, "desc": "Commentaires vidéos"},
         "Telegram": {"icon": "✈️", "max": 500, "desc": "Channels publics"},
         "StockTwits": {"icon": "📈", "max": 300, "desc": "Labels inclus"},
     }
@@ -1320,7 +1324,7 @@ def page_scraping():
             
             c1, c2 = st.columns(2)
             with c1:
-                limit = st.slider("Nombre de commentaires", 10, 500, 100, key="scr_limit")
+                limit = st.slider("Nombre de commentaires", 10, 5000, 100, key="scr_limit")
             with c2:
                 order = st.selectbox("Tri", ["relevance", "time"], format_func=lambda x: "Populaires" if x == "relevance" else "Récents", key="scr_order")
             
