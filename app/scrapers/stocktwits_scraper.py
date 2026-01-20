@@ -140,9 +140,6 @@ def scrape_stocktwits(symbol: str, limit: int = 100, method: str = "selenium") -
         driver.quit()
 
     posts = posts[:limit]
-    if save_posts:
-        save_posts(posts, source="stocktwits", method="selenium")
-
     return posts
 
 

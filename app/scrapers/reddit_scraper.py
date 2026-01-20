@@ -64,9 +64,6 @@ def scrape_reddit_http(subreddit: str, limit: int = 100) -> list:
         
         time.sleep(0.3)
     
-    if save_posts:
-        save_posts(posts, source="reddit", method="http")
-
     return posts
 
 
@@ -181,9 +178,6 @@ def scrape_reddit_selenium(subreddit: str, limit: int = 100) -> list:
         driver.quit()
     
     posts = posts[:limit]
-    if save_posts:
-        save_posts(posts, source="reddit", method="selenium")
-
     return posts
 
 

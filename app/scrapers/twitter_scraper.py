@@ -412,9 +412,6 @@ def scrape_twitter(
     
     all_posts = all_posts[:limit]
     
-    if save_posts and all_posts:
-        save_posts(all_posts, source="twitter", method="selenium")
-    
     print(f"Twitter: Total {len(all_posts)} tweets scraped")
     return all_posts
 
@@ -533,9 +530,6 @@ def scrape_twitter_with_login(
                 human_delay(5, 10)
         
         posts = posts[:limit]
-        
-        if save_posts and posts:
-            save_posts(posts, source="twitter", method="selenium_login")
         
         print(f"Twitter: Total {len(posts)} tweets scraped avec login")
         
@@ -889,8 +883,5 @@ def scrape_nitter(query: str, limit: int = 50) -> list:
         print(f"Erreur Nitter: {e}")
     finally:
         driver.quit()
-    
-    if save_posts:
-        save_posts(posts, source="twitter", method="nitter")
     
     return posts
