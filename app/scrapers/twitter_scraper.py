@@ -390,21 +390,28 @@ def scrape_twitter(
     
     # Si on a des cookies OU des credentials, utiliser le mode login (Jose)
     if cookies_exist or (username and password):
-        print(f"Twitter: Mode login (cookies={cookies_exist}, creds={bool(username)})")
-        return scrape_twitter_with_login(
-            query=query,
-            limit=min(limit, LIMITS["selenium"]),
-            username=username or "cookie_user",
-            password=password or "cookie_pass",
-            min_likes=min_likes,
-            min_replies=min_replies,
-            start_date=start_date,
-            end_date=end_date,
-            sort_mode=sort_mode
-        )
+        print(f"Twitter: Mode login (cookies={cookies_exist}, creds={bool(username and password)})")
+        try:
+            result = scrape_twitter_with_login(
+                query=query,
+                limit=min(limit, LIMITS["selenium"]),
+                username=username or "cookie_user",
+                password=password or "cookie_pass",
+                min_likes=min_likes,
+                min_replies=min_replies,
+                start_date=start_date,
+                end_date=end_date,
+                sort_mode=sort_mode
+            )
+            if result:
+                return result
+            else:
+                print("Twitter: Mode login n'a retourné aucun résultat, passage en fallback")
+        except Exception as e:
+            print(f"Twitter: Erreur mode login: {e}, passage en fallback")
     
     # Sinon, mode sans login: Nitter (priorité) puis profils publics
-    print("Twitter: Mode sans login (pas de cookies ni credentials)")
+    print("Twitter: Mode sans login (pas de cookies/credentials valides)")
     return scrape_twitter_no_login(query, limit)
 
 
@@ -507,7 +514,7 @@ def scrape_twitter_with_login(
         
         while len(posts) < limit and scroll_count < max_scrolls:
             # Parser les tweets actuels
-            new_posts = parse_tweets(driver.page_source, seen_ids, "")
+            new_posts = parse_tweets(driver.page_source, seen_ids, query)
             
             if new_posts:
                 posts.extend(new_posts)
@@ -515,9 +522,22 @@ def scrape_twitter_with_login(
                 print(f"  Scroll {scroll_count + 1}: {len(posts)} tweets total")
             else:
                 no_new_tweets_count += 1
-                if no_new_tweets_count >= 5:
-                    print("Twitter: Plus de nouveaux tweets trouves")
-                    break
+                if no_new_tweets_count >= 3:
+                    # Vérifier si on a un mur de login ou une erreur
+                    if is_login_wall(driver):
+                        print("Twitter: Mur de login détecté pendant le scraping")
+                        reason = detect_twitter_block_reason(driver.page_source)
+                        if reason:
+                            print(f"Twitter: {reason}")
+                        break
+                    # Vérifier si la page est vide ou erreur
+                    page_lower = driver.page_source.lower()
+                    if "no results" in page_lower or "aucun résultat" in page_lower:
+                        print("Twitter: Aucun résultat trouvé pour cette recherche")
+                        break
+                    if no_new_tweets_count >= 5:
+                        print("Twitter: Plus de nouveaux tweets trouvés après 5 tentatives")
+                        break
             
             # Scroll humain
             human_scroll(driver, distance=random.randint(500, 900))
@@ -535,9 +555,20 @@ def scrape_twitter_with_login(
         print(f"Twitter: Total {len(posts)} tweets scraped avec login")
         
     except Exception as e:
+        import traceback
         print(f"Twitter scrape error: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
+        # Essayer le fallback en cas d'erreur
+        try:
+            driver.quit()
+        except:
+            pass
+        return scrape_twitter_no_login(query, min(limit, 100))
     finally:
-        driver.quit()
+        try:
+            driver.quit()
+        except:
+            pass
     
     return posts
 
@@ -697,18 +728,21 @@ def parse_tweets(page_source: str, seen_ids: set, keyword: str = "") -> list:
     soup = BeautifulSoup(page_source, "lxml")
     keyword_lower = keyword.lower() if keyword else ""
     
-    # Selecteurs pour les tweets
+    # Selecteurs pour les tweets (mis à jour pour X.com)
     tweet_selectors = [
         "article[data-testid='tweet']",
         "article[role='article']",
         "[data-testid='tweet']",
-        "div[data-testid='tweetText']"
+        "div[data-testid='tweetText']",
+        # Fallbacks supplémentaires
+        "div[data-testid='cellInnerDiv'] article",
+        "div[role='article']"
     ]
     
     tweets = []
     for selector in tweet_selectors:
         tweets = soup.select(selector)
-        if tweets:
+        if tweets and len(tweets) > 0:
             break
     
     for tweet in tweets:
@@ -726,12 +760,24 @@ def parse_tweets(page_source: str, seen_ids: set, keyword: str = "") -> list:
                 continue
             seen_ids.add(tweet_id)
             
-            # Texte du tweet
-            text_el = tweet.select_one("[data-testid='tweetText']")
-            text = text_el.get_text(strip=True) if text_el else ""
+            # Texte du tweet (plusieurs selecteurs possibles)
+            text = ""
+            text_selectors = [
+                "[data-testid='tweetText']",
+                "div[data-testid='tweetText']",
+                "span[data-testid='tweetText']",
+                ".tweet-text",
+                "div[lang]"
+            ]
+            for text_sel in text_selectors:
+                text_el = tweet.select_one(text_sel)
+                if text_el:
+                    text = text_el.get_text(strip=True)
+                    if text and len(text) > 5:
+                        break
             
             if not text:
-                # Fallback
+                # Fallback: prendre tout le texte du tweet
                 text = tweet.get_text(strip=True)[:500]
             
             if not text or len(text) < 5:
@@ -749,11 +795,22 @@ def parse_tweets(page_source: str, seen_ids: set, keyword: str = "") -> list:
             time_el = tweet.select_one("time")
             timestamp = time_el.get("datetime") if time_el else None
             
-            # Username
-            username_el = tweet.select_one("[data-testid='User-Name'] a")
+            # Username (plusieurs selecteurs)
             username = ""
-            if username_el:
-                username = username_el.get_text(strip=True)
+            username_selectors = [
+                "[data-testid='User-Name'] a",
+                "a[href^='/']",
+                ".username",
+                "[data-testid='User-Names'] a"
+            ]
+            for user_sel in username_selectors:
+                username_el = tweet.select_one(user_sel)
+                if username_el:
+                    username_text = username_el.get_text(strip=True)
+                    # Filtrer les liens non-username
+                    if username_text and not username_text.startswith("http") and len(username_text) < 50:
+                        username = username_text
+                        break
             
             posts.append({
                 "id": tweet_id,

@@ -54,14 +54,27 @@ def _get_postgres_conn():
             print(f"⚠️  Erreur connexion avec variables: {e}")
             # Continue pour essayer DATABASE_URL
     
-    # Fallback: DATABASE_URL
+    # Fallback: DATABASE_URL (depuis .env ou Streamlit Secrets)
     database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        # Essayer Streamlit Secrets (pour déploiement cloud)
+        try:
+            import streamlit as st
+            database_url = st.secrets.get("DATABASE_URL")
+        except Exception:
+            pass
+    
     if not database_url:
         print("⚠️  Aucune config PostgreSQL trouvée - utilisation de SQLite local")
         return None
     
     # Enlever les guillemets si présents
     database_url = database_url.strip('"').strip("'")
+    
+    # Dans Streamlit Secrets, les $$ doivent être doublés ($$$$)
+    # On les convertit en $$ pour l'URL
+    if "$$$$" in database_url:
+        database_url = database_url.replace("$$$$", "$$")
     
     try:
         # Si l'URL commence par postgres://, convertir en postgresql://

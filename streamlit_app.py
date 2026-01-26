@@ -304,16 +304,22 @@ def scrape_data(source, config, limit, method, telegram_channel=None, crypto_nam
         return posts
     elif source == "Twitter":
         query = crypto_name or config.get('sub', 'Bitcoin')
-        posts = scrape_twitter(
-            query, limit,
-            min_likes=twitter_min_likes,
-            start_date=twitter_start_date,
-            end_date=twitter_end_date,
-            sort_mode=twitter_sort
-        )
-        method_used = "selenium_login" if posts else "selenium"
-        save_posts(posts, source="twitter", method=method_used)
-        return posts
+        try:
+            posts = scrape_twitter(
+                query, limit,
+                min_likes=twitter_min_likes,
+                start_date=twitter_start_date,
+                end_date=twitter_end_date,
+                sort_mode=twitter_sort
+            )
+            method_used = "selenium_login" if posts else "selenium"
+            save_posts(posts, source="twitter", method=method_used)
+            return posts
+        except Exception as e:
+            import traceback
+            print(f"Erreur Twitter scraping: {e}")
+            print(f"Traceback: {traceback.format_exc()}")
+            return []
     elif source == "Telegram":
         if limit > 30:
             posts = scrape_telegram_paginated(telegram_channel, limit)
@@ -1381,13 +1387,22 @@ def page_scraping():
         if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
             config = CRYPTO_LIST[crypto]
             with st.spinner("Scraping Twitter en cours..."):
-                posts = scrape_twitter(
-                    config.get('sub', crypto), limit,
-                    min_likes=min_likes if min_likes > 0 else None,
-                    start_date=start_date.strftime('%Y-%m-%d') if start_date else None,
-                    end_date=end_date.strftime('%Y-%m-%d') if end_date else None,
-                    sort_mode=sort_mode
-                )
+                try:
+                    posts = scrape_twitter(
+                        config.get('sub', crypto), limit,
+                        min_likes=min_likes if min_likes > 0 else None,
+                        start_date=start_date.strftime('%Y-%m-%d') if start_date else None,
+                        end_date=end_date.strftime('%Y-%m-%d') if end_date else None,
+                        sort_mode=sort_mode
+                    )
+                    if not posts:
+                        st.warning("⚠️ Aucun tweet récupéré. Twitter peut bloquer le scraping. Vérifiez les logs dans le terminal.")
+                    else:
+                        st.success(f"✅ {len(posts)} tweets récupérés!")
+                except Exception as e:
+                    st.error(f"❌ Erreur lors du scraping Twitter: {e}")
+                    st.info("💡 Conseils: Vérifiez que Chrome/ChromeDriver est installé, ou utilisez le mode Nitter (fallback automatique)")
+                    posts = []
             st.session_state.scrape_results = {"posts": posts, "source": "twitter", "crypto": crypto}
     
     elif source == "YouTube":
