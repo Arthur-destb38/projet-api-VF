@@ -8,12 +8,13 @@ from .youtube_scraper import scrape_youtube, get_limits as get_youtube_limits
 from .telegram_scraper import (
     scrape_telegram_simple, 
     scrape_telegram_paginated,
+    scrape_telegram_selenium,
     scrape_multiple_channels as scrape_telegram_multi,
     CRYPTO_CHANNELS as TELEGRAM_CHANNELS
 )
 
 def get_telegram_limits():
-    return {"simple": 30, "paginated": 500}
+    return {"simple": 30, "paginated": 2000, "selenium": 5000}
 
 __all__ = [
     "HttpScraper", 
@@ -30,6 +31,7 @@ __all__ = [
     "get_youtube_limits",
     "scrape_telegram_simple",
     "scrape_telegram_paginated",
+    "scrape_telegram_selenium",
     "scrape_telegram_multi",
     "TELEGRAM_CHANNELS",
     "get_telegram_limits"

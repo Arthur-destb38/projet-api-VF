@@ -5,6 +5,8 @@ Reddit Scraper - HTTP et Selenium
 import requests
 import time
 import random
+from datetime import datetime
+from typing import Optional
 
 try:
     from app.storage import save_posts
@@ -18,31 +20,86 @@ LIMITS = {
 }
 
 
-def scrape_reddit_http(subreddit: str, limit: int = 100) -> list:
+def filter_posts_by_date(posts: list, start_date: Optional[str] = None, end_date: Optional[str] = None) -> list:
+    """Filtre les posts par date (created_utc est un timestamp Unix)"""
+    if not start_date and not end_date:
+        return posts
+    
+    filtered = []
+    start_dt = datetime.fromisoformat(start_date) if start_date else None
+    end_dt = datetime.fromisoformat(end_date) if end_date else None
+    
+    for post in posts:
+        created_utc = post.get("created_utc")
+        if not created_utc:
+            continue
+        
+        # Convertir timestamp Unix en datetime
+        try:
+            if isinstance(created_utc, (int, float)):
+                post_dt = datetime.fromtimestamp(created_utc)
+            elif isinstance(created_utc, str):
+                # Essayer de parser comme ISO string ou timestamp
+                try:
+                    post_dt = datetime.fromisoformat(created_utc.replace('Z', '+00:00'))
+                except:
+                    post_dt = datetime.fromtimestamp(float(created_utc))
+            else:
+                continue
+            
+            # Filtrer
+            if start_dt and post_dt.date() < start_dt.date():
+                continue
+            if end_dt and post_dt.date() > end_dt.date():
+                continue
+            
+            filtered.append(post)
+        except Exception:
+            continue
+    
+    return filtered
+
+
+def scrape_reddit_http(subreddit: str, limit: int = 100, start_date: Optional[str] = None, end_date: Optional[str] = None) -> list:
     """Scrape Reddit via HTTP/JSON (rapide)"""
     posts = []
     after = None
     headers = {"User-Agent": "Mozilla/5.0 Chrome/120.0.0.0"}
     
-    limit = min(limit, LIMITS["http"])
+    # Augmenter la limite si on filtre par date (on récupère plus puis on filtre)
+    fetch_limit = limit * 2 if (start_date or end_date) else limit
+    fetch_limit = min(fetch_limit, LIMITS["http"])
     
-    while len(posts) < limit:
-        url = f"https://old.reddit.com/r/{subreddit}/new.json"
-        params = {"limit": min(100, limit - len(posts))}
+    page = 0
+    # Essayer old.reddit.com puis www.reddit.com en fallback (DNS/réseau)
+    base_hosts = ["https://old.reddit.com", "https://www.reddit.com"]
+    base = base_hosts[0]
+
+    while len(posts) < fetch_limit:
+        url = f"{base}/r/{subreddit}/new.json"
+        params = {"limit": min(100, fetch_limit - len(posts))}
         if after:
             params["after"] = after
-        
+
         try:
             resp = requests.get(url, headers=headers, params=params, timeout=15)
+            resp.raise_for_status()
             data = resp.json()
         except Exception as e:
-            print(f"Erreur Reddit HTTP: {e}")
+            # Fallback: réessayer avec www.reddit.com si old échoue (DNS/réseau)
+            if base == base_hosts[0]:
+                base = base_hosts[1]
+                print(f"Fallback Reddit: old.reddit.com → www.reddit.com")
+                continue
+            print(f"Erreur Reddit HTTP page {page}: {e}")
             break
         
         children = data.get("data", {}).get("children", [])
         if not children:
+            print(f"Reddit: Plus de posts disponibles (page {page})")
             break
         
+        page_posts = 0
         for child in children:
             d = child.get("data", {})
             posts.append({
@@ -55,19 +112,28 @@ def scrape_reddit_http(subreddit: str, limit: int = 100) -> list:
                 "method": "http",
                 "human_label": None
             })
-            if len(posts) >= limit:
+            page_posts += 1
+            if len(posts) >= fetch_limit:
                 break
+        
+        print(f"Reddit: Page {page + 1} - {page_posts} posts (total: {len(posts)}/{limit})")
         
         after = data.get("data", {}).get("after")
         if not after:
+            print(f"Reddit: Fin de pagination atteinte")
             break
         
+        page += 1
         time.sleep(0.3)
     
-    return posts
+    # Filtrer par date si nécessaire
+    posts = filter_posts_by_date(posts, start_date, end_date)
+    
+    # Limiter au nombre demandé
+    return posts[:limit]
 
 
-def scrape_reddit_selenium(subreddit: str, limit: int = 100) -> list:
+def scrape_reddit_selenium(subreddit: str, limit: int = 100, start_date: Optional[str] = None, end_date: Optional[str] = None) -> list:
     """Scrape Reddit via Selenium (simule navigateur)"""
     try:
         from selenium import webdriver
@@ -79,7 +145,9 @@ def scrape_reddit_selenium(subreddit: str, limit: int = 100) -> list:
         print("Selenium non installe")
         return []
     
-    limit = min(limit, LIMITS["selenium"])
+    # Augmenter la limite si on filtre par date
+    fetch_limit = limit * 2 if (start_date or end_date) else limit
+    fetch_limit = min(fetch_limit, LIMITS["selenium"])
     posts = []
     
     # Config Chrome
@@ -112,7 +180,7 @@ def scrape_reddit_selenium(subreddit: str, limit: int = 100) -> list:
         pages = 0
         max_pages = (limit // 25) + 2
         
-        while len(posts) < limit and pages < max_pages:
+        while len(posts) < fetch_limit and pages < max_pages:
             # Scroll
             for _ in range(2):
                 px = random.randint(300, 600)
@@ -177,11 +245,14 @@ def scrape_reddit_selenium(subreddit: str, limit: int = 100) -> list:
     finally:
         driver.quit()
     
-    posts = posts[:limit]
-    return posts
+    # Filtrer par date si nécessaire
+    posts = filter_posts_by_date(posts, start_date, end_date)
+    
+    # Limiter au nombre demandé
+    return posts[:limit]
 
 
-def scrape_reddit(subreddit: str, limit: int = 100, method: str = "http") -> list:
+def scrape_reddit(subreddit: str, limit: int = 100, method: str = "http", start_date: Optional[str] = None, end_date: Optional[str] = None) -> list:
     """
     Scrape Reddit avec la methode choisie
     
@@ -189,11 +260,13 @@ def scrape_reddit(subreddit: str, limit: int = 100, method: str = "http") -> lis
         subreddit: Nom du subreddit
         limit: Nombre de posts
         method: "http" (rapide, max 1000) ou "selenium" (lent, max 200)
+        start_date: Date de début (format: "YYYY-MM-DD") - optionnel
+        end_date: Date de fin (format: "YYYY-MM-DD") - optionnel
     """
     if method == "selenium":
-        return scrape_reddit_selenium(subreddit, limit)
+        return scrape_reddit_selenium(subreddit, limit, start_date, end_date)
     else:
-        return scrape_reddit_http(subreddit, limit)
+        return scrape_reddit_http(subreddit, limit, start_date, end_date)
 
 
 def get_limits():

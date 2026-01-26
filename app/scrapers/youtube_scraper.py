@@ -141,7 +141,7 @@ def scrape_youtube_api(
                 break
             
             try:
-                comments = get_video_comments_api(youtube, video_id, comments_per_video)
+                comments = get_video_comments_api(youtube, video_id, comments_per_video, order='relevance')
                 all_comments.extend(comments)
                 print(f"  Video {video_id}: {len(comments)} commentaires")
                 human_delay(0.5, 1)
@@ -158,38 +158,61 @@ def scrape_youtube_api(
         return []
 
 
-def get_video_comments_api(youtube, video_id: str, limit: int) -> List[Dict]:
-    """Recupere les commentaires d'une video via l'API"""
+def get_video_comments_api(youtube, video_id: str, limit: int, order: str = "relevance") -> List[Dict]:
+    """Recupere les commentaires d'une video via l'API avec pagination"""
     comments = []
+    next_page_token = None
     
     try:
-        request = youtube.commentThreads().list(
-            part='snippet',
-            videoId=video_id,
-            maxResults=min(100, limit),
-            order='relevance',
-            textFormat='plainText'
-        )
-        response = request.execute()
-        
-        for item in response.get('items', []):
-            snippet = item['snippet']['topLevelComment']['snippet']
+        while len(comments) < limit:
+            request = youtube.commentThreads().list(
+                part='snippet',
+                videoId=video_id,
+                maxResults=min(100, limit - len(comments)),  # Max 100 par requête
+                order=order,
+                textFormat='plainText',
+                pageToken=next_page_token
+            )
+            response = request.execute()
             
-            comments.append({
-                'id': item['id'],
-                'source': 'youtube',
-                'method': 'api',
-                'title': snippet.get('textDisplay', '')[:500],  # Limite taille
-                'text': snippet.get('textDisplay', ''),
-                'score': snippet.get('likeCount', 0),
-                'created_utc': snippet.get('publishedAt'),
-                'author': snippet.get('authorDisplayName'),
-                'video_id': video_id,
-                'video_url': f"https://youtube.com/watch?v={video_id}",
-                'human_label': None,
-                'scraped_at': datetime.now().isoformat()
-            })
+            items = response.get('items', [])
+            if not items:
+                break
             
+            for item in items:
+                snippet = item['snippet']['topLevelComment']['snippet']
+                
+                comments.append({
+                    'id': item['id'],
+                    'source': 'youtube',
+                    'method': 'api',
+                    'title': snippet.get('textDisplay', '')[:500],  # Limite taille
+                    'text': snippet.get('textDisplay', ''),
+                    'score': snippet.get('likeCount', 0),
+                    'created_utc': snippet.get('publishedAt'),
+                    'author': snippet.get('authorDisplayName'),
+                    'video_id': video_id,
+                    'video_url': f"https://youtube.com/watch?v={video_id}",
+                    'human_label': None,
+                    'scraped_at': datetime.now().isoformat()
+                })
+                
+                if len(comments) >= limit:
+                    break
+            
+            # Récupérer le token pour la page suivante
+            next_page_token = response.get('nextPageToken')
+            if not next_page_token:
+                break
+            
+            # Petit délai pour éviter rate limiting
+            time.sleep(0.1)
+            
+    except HttpError as e:
+        if 'commentsDisabled' in str(e):
+            print(f"  Commentaires désactivés pour la vidéo {video_id}")
+        else:
+            print(f"Erreur commentaires video {video_id}: {e}")
     except Exception as e:
         print(f"Erreur commentaires video {video_id}: {e}")
     

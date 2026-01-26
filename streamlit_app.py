@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime
+from datetime import datetime, date
 import sys
 import os
 from dotenv import load_dotenv
@@ -39,6 +39,47 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# ============ PROTECTION PAR MOT DE PASSE ============
+# Si APP_PASSWORD ou DASHBOARD_PASSWORD est défini (dans .env ou variables d'env cloud),
+# l'utilisateur doit entrer le mot de passe pour accéder au dashboard.
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+_app_password = os.environ.get("APP_PASSWORD") or os.environ.get("DASHBOARD_PASSWORD")
+if not _app_password:
+    try:
+        _app_password = st.secrets.get("APP_PASSWORD") or st.secrets.get("DASHBOARD_PASSWORD")
+    except Exception:
+        pass
+
+if not st.session_state.authenticated:
+    if not _app_password:
+        # Pas de mot de passe configuré (dev local) → accès libre
+        st.session_state.authenticated = True
+    else:
+        # Afficher la page de connexion
+        st.markdown("""
+        <style>
+            .login-box { max-width: 380px; margin: 4rem auto; padding: 2rem;
+                background: linear-gradient(135deg, rgba(30,30,46,0.95) 0%, rgba(26,26,46,0.9) 100%);
+                border: 1px solid rgba(99,102,241,0.3); border-radius: 16px; }
+        </style>
+        """, unsafe_allow_html=True)
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.markdown("### ◈ Crypto Sentiment")
+            st.caption("Entrez le mot de passe pour accéder au dashboard.")
+            with st.form("login_form"):
+                pwd = st.text_input("Mot de passe", type="password", placeholder="••••••••", key="login_pwd")
+                submitted = st.form_submit_button("Accéder")
+            if submitted:
+                if pwd and pwd == _app_password:
+                    st.session_state.authenticated = True
+                    st.rerun()
+                else:
+                    st.error("Mot de passe incorrect.")
+            st.stop()
 
 # ============ CUSTOM CSS ============
 
@@ -78,7 +119,7 @@ st.markdown("""
         padding: 24px;
         margin: 8px 0;
         backdrop-filter: blur(10px);
-    }tx
+    }
     
     .metric-value {
         font-family: 'JetBrains Mono', monospace;
@@ -227,7 +268,7 @@ CRYPTO_LIST = {
 
 LIMITS = {
     "Reddit": {"HTTP": get_reddit_limits()["http"], "Selenium": get_reddit_limits()["selenium"]},
-    "StockTwits": {"Selenium": get_stocktwits_limits()["selenium"]},
+    "StockTwits": {"Selenium": get_stocktwits_limits()["selenium"]},  # 1000 posts max avec scroll amélioré
     "Twitter": {"Selenium": 100, "Login": 2000},  # Login = avec cookies (methode Jose)
     "Telegram": {"Simple": get_telegram_limits()["simple"], "Paginé": get_telegram_limits()["paginated"]}
 }
@@ -372,8 +413,10 @@ def page_dashboard():
             
             st.markdown("""
             <div class="info-box">
-                <strong>Twitter/X</strong><br>
-                <small>Login: recherche avancee avec filtres | Selenium: profils publics</small>
+                <strong>Twitter/X</strong> — instable depuis 2023<br>
+                <small>X exige le login, détecte Selenium et change son API toutes les 2–4 sem.
+                Si login échoue ou sans identifiants: <b>Nitter</b> (fallback) puis profils publics.
+                Mettez <code>TWITTER_USERNAME</code> et <code>TWITTER_PASSWORD</code> dans <code>.env</code> pour tenter le login.</small>
             </div>
             """, unsafe_allow_html=True)
         elif source == "Telegram":
@@ -1089,7 +1132,7 @@ def page_methodo():
         |--------|---------|-----------|---------|--------|
         | Reddit | HTTP | 1000 | ~1-5s | Non |
         | Reddit | Selenium | 200 | ~10-30s | Non |
-        | StockTwits | Selenium | 300 | ~10-30s | Oui (Bullish/Bearish) |
+        | StockTwits | Selenium | 1000 | ~30-60s | Oui (Bullish/Bearish) |
         
         **Note:** StockTwits utilise Cloudflare, seul Selenium fonctionne.
         """)
@@ -1109,7 +1152,7 @@ def page_methodo():
         **Pour éviter les bans:**
         - Reddit HTTP: max 1000 posts, 1 req/s
         - Reddit Selenium: max 200 posts
-        - StockTwits: max 300 posts
+        - StockTwits: max 1000 posts (avec scroll amélioré)
         """)
     
     with tabs[3]:
@@ -1233,7 +1276,7 @@ def page_scraping():
         "Twitter": {"icon": "🐦", "max": 2000, "desc": "Recherche avancée"},
         "YouTube": {"icon": "▶️", "max": 5000, "desc": "Commentaires vidéos"},
         "Telegram": {"icon": "✈️", "max": 500, "desc": "Channels publics"},
-        "StockTwits": {"icon": "📈", "max": 300, "desc": "Labels inclus"},
+        "StockTwits": {"icon": "📈", "max": 1000, "desc": "Labels inclus (scroll amélioré)"},
     }
     
     # Sélection de la source
@@ -1282,10 +1325,42 @@ def page_scraping():
         with c2:
             limit = st.slider("Nombre de posts", 10, 1000, 100, key="scr_limit")
         
+        # Sélecteurs de date
+        st.markdown("**Filtres de date (optionnel)**")
+        c3, c4 = st.columns(2)
+        with c3:
+            start_date = st.date_input("Date de début", value=None, key="scr_reddit_start")
+        with c4:
+            end_date = st.date_input("Date de fin", value=None, key="scr_reddit_end")
+        
         if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
             config = CRYPTO_LIST[crypto]
+            
+            # Validation des dates
+            today = date.today()
+            if start_date and start_date > today:
+                st.error("⚠️ La date de début ne peut pas être dans le futur")
+                st.stop()
+            if end_date and end_date > today:
+                st.warning("⚠️ La date de fin est dans le futur. Les posts récents seront récupérés jusqu'à aujourd'hui.")
+                end_date = today
+            
             with st.spinner("Scraping Reddit en cours..."):
-                posts = scrape_reddit(config['sub'], limit, method='http')
+                posts = scrape_reddit(
+                    config['sub'], limit, method='http',
+                    start_date=start_date.strftime('%Y-%m-%d') if start_date else None,
+                    end_date=end_date.strftime('%Y-%m-%d') if end_date else None
+                )
+            
+            # Message d'aide si aucun post
+            if not posts:
+                if end_date and end_date < today:
+                    st.warning(f"ℹ️ Aucun post récupéré. Les posts récents sont datés de {today.strftime('%Y-%m-%d')} ou après. La date de fin ({end_date.strftime('%Y-%m-%d')}) est dans le passé. Essayez de mettre la date de fin à aujourd'hui ou laissez-la vide pour récupérer les posts récents.")
+                elif start_date:
+                    st.warning(f"ℹ️ Aucun post récupéré dans la plage {start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d') if end_date else 'aujourd\'hui'}. Les scrapers récupèrent d'abord les posts les plus récents.")
+                else:
+                    st.error("❌ Aucun post récupéré. Vérifiez le nom du subreddit et votre connexion.")
+            
             st.session_state.scrape_results = {"posts": posts, "source": "reddit", "crypto": crypto}
     
     elif source == "Twitter":
@@ -1376,14 +1451,47 @@ def page_scraping():
         with c1:
             crypto = st.selectbox("Cryptomonnaie", list(CRYPTO_LIST.keys()), key="scr_crypto")
         with c2:
-            limit = st.slider("Nombre de posts", 10, 300, 100, key="scr_limit")
+            max_limit = LIMITS["StockTwits"]["Selenium"]  # 1000 posts max
+            limit = st.slider("Nombre de posts", 10, max_limit, min(100, max_limit), key="scr_limit")
+        
+        # Sélecteurs de date
+        st.markdown("**Filtres de date (optionnel)**")
+        c3, c4 = st.columns(2)
+        with c3:
+            start_date = st.date_input("Date de début", value=None, key="scr_stocktwits_start")
+        with c4:
+            end_date = st.date_input("Date de fin", value=None, key="scr_stocktwits_end")
         
         st.info("Les labels Bullish/Bearish sont inclus automatiquement")
         
         if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
             config = CRYPTO_LIST[crypto]
+            
+            # Validation des dates
+            today = date.today()
+            if start_date and start_date > today:
+                st.error("⚠️ La date de début ne peut pas être dans le futur")
+                st.stop()
+            if end_date and end_date > today:
+                st.warning("⚠️ La date de fin est dans le futur. Les posts récents seront récupérés jusqu'à aujourd'hui.")
+                end_date = today
+            
             with st.spinner("Scraping StockTwits en cours..."):
-                posts = scrape_stocktwits(config['stocktwits'], limit)
+                posts = scrape_stocktwits(
+                    config['stocktwits'], limit,
+                    start_date=start_date.strftime('%Y-%m-%d') if start_date else None,
+                    end_date=end_date.strftime('%Y-%m-%d') if end_date else None
+                )
+            
+            # Message d'aide si aucun post
+            if not posts:
+                if end_date and end_date < today:
+                    st.warning(f"ℹ️ Aucun post récupéré. Les posts récents sont datés de {today.strftime('%Y-%m-%d')} ou après. La date de fin ({end_date.strftime('%Y-%m-%d')}) est dans le passé. Essayez de mettre la date de fin à aujourd'hui ou laissez-la vide pour récupérer les posts récents.")
+                elif start_date:
+                    st.warning(f"ℹ️ Aucun post récupéré dans la plage {start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d') if end_date else 'aujourd\'hui'}. Les scrapers récupèrent d'abord les posts les plus récents.")
+                else:
+                    st.error("❌ Aucun post récupéré. Vérifiez votre connexion et que Selenium est installé.")
+            
             st.session_state.scrape_results = {"posts": posts, "source": "stocktwits", "crypto": crypto}
     
     # Affichage des résultats

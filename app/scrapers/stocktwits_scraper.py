@@ -7,6 +7,8 @@ import time
 import random
 import re
 import json
+from datetime import datetime
+from typing import Optional
 
 try:
     from app.storage import save_posts
@@ -19,6 +21,7 @@ try:
     from selenium.webdriver.chrome.options import Options
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.common.action_chains import ActionChains
     from bs4 import BeautifulSoup
     SELENIUM_OK = True
 except ImportError:
@@ -26,7 +29,7 @@ except ImportError:
 
 # Limites pour eviter le ban
 LIMITS = {
-    "selenium": 300  # Seule methode disponible pour StockTwits
+    "selenium": 1000,  # Amélioré avec scroll optimisé
 }
 
 
@@ -35,7 +38,48 @@ def get_limits():
     return LIMITS
 
 
-def scrape_stocktwits(symbol: str, limit: int = 100, method: str = "selenium") -> list:
+def filter_posts_by_date(posts: list, start_date: Optional[str] = None, end_date: Optional[str] = None) -> list:
+    """Filtre les posts StockTwits par date (created_at peut être ISO string ou timestamp)"""
+    if not start_date and not end_date:
+        return posts
+    
+    filtered = []
+    start_dt = datetime.fromisoformat(start_date) if start_date else None
+    end_dt = datetime.fromisoformat(end_date) if end_date else None
+    
+    for post in posts:
+        created_at = post.get("created_utc")
+        if not created_at:
+            continue
+        
+        # Convertir en datetime
+        try:
+            if isinstance(created_at, str):
+                # Essayer ISO format d'abord
+                try:
+                    post_dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                except:
+                    # Essayer timestamp
+                    post_dt = datetime.fromtimestamp(float(created_at))
+            elif isinstance(created_at, (int, float)):
+                post_dt = datetime.fromtimestamp(created_at)
+            else:
+                continue
+            
+            # Filtrer
+            if start_dt and post_dt.date() < start_dt.date():
+                continue
+            if end_dt and post_dt.date() > end_dt.date():
+                continue
+            
+            filtered.append(post)
+        except Exception:
+            continue
+    
+    return filtered
+
+
+def scrape_stocktwits(symbol: str, limit: int = 100, method: str = "selenium", enhanced: bool = False, start_date: Optional[str] = None, end_date: Optional[str] = None) -> list:
     """
     Scrape StockTwits avec Selenium (bypass Cloudflare)
     Note: HTTP ne fonctionne pas (Cloudflare), seul Selenium est disponible
@@ -54,9 +98,11 @@ def scrape_stocktwits(symbol: str, limit: int = 100, method: str = "selenium") -
 
     posts = []
     seen_ids = set()
-    limit = min(limit, LIMITS["selenium"])
+    # Augmenter la limite si on filtre par date
+    fetch_limit = limit * 2 if (start_date or end_date) else limit
+    fetch_limit = min(fetch_limit, LIMITS["selenium"])
 
-    # Config Chrome
+    # Config Chrome avec interception réseau si enhanced
     options = Options()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
@@ -64,10 +110,11 @@ def scrape_stocktwits(symbol: str, limit: int = 100, method: str = "selenium") -
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
+    options.add_argument("--remote-debugging-port=0")  # évite "Can't find free port"
     options.add_argument("--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
-
+    
     try:
         driver = webdriver.Chrome(options=options)
         driver.execute_cdp_cmd('Network.setUserAgentOverride', {
@@ -86,15 +133,21 @@ def scrape_stocktwits(symbol: str, limit: int = 100, method: str = "selenium") -
         time.sleep(random.uniform(5, 8))
 
         # Essayer d'abord d'extraire le JSON embarque (methode la plus fiable)
-        posts = extract_json_data(driver, limit)
-
+        posts = extract_json_data(driver, fetch_limit)
         if posts:
+            seen_ids.update(p.get('id') for p in posts if p.get('id'))
             print(f"Extracted {len(posts)} posts from JSON")
-            driver.quit()
-            return posts
 
-        # Fallback: parser le HTML
-        print("JSON extraction failed, falling back to HTML parsing...")
+        if posts and len(posts) >= fetch_limit:
+            # Filtrer par date si nécessaire
+            posts = filter_posts_by_date(posts, start_date, end_date)
+            print(f"Extracted {len(posts)} posts from JSON (after date filter)")
+            driver.quit()
+            return posts[:limit]
+
+        # Fallback: parser le HTML si on n'a pas assez de posts
+        if len(posts) < fetch_limit:
+            print(f"JSON gave {len(posts)} posts, scraping HTML for more...")
 
         # Attendre le contenu
         try:
@@ -106,31 +159,31 @@ def scrape_stocktwits(symbol: str, limit: int = 100, method: str = "selenium") -
 
         time.sleep(2)
 
-        # Scroll pour charger plus
-        last_height = driver.execute_script("return document.body.scrollHeight")
-        scroll_attempts = 0
-        max_scrolls = (limit // 15) + 5
+        # Scroll amélioré pour charger plus de posts
+        if len(posts) < fetch_limit:
+            # Calculer combien de posts on a encore besoin
+            remaining = fetch_limit - len(posts)
+            additional_posts = enhanced_scroll_and_parse(driver, [], seen_ids, remaining, enhanced)
+            posts.extend(additional_posts)
+            
+            # Dédupliquer par ID
+            unique_posts = []
+            seen = set()
+            for p in posts:
+                p_id = p.get('id')
+                if p_id and p_id not in seen:
+                    seen.add(p_id)
+                    unique_posts.append(p)
+                elif not p_id:
+                    # Si pas d'ID, utiliser le hash du texte
+                    text_hash = hash(p.get('title', '')[:50])
+                    if text_hash not in seen:
+                        seen.add(text_hash)
+                        unique_posts.append(p)
+            posts = unique_posts
 
-        while len(posts) < limit and scroll_attempts < max_scrolls:
-            # Parse HTML
-            new_posts = parse_html_posts(driver.page_source, seen_ids)
-            posts.extend(new_posts)
-
-            if len(posts) >= limit:
-                break
-
-            # Scroll
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(random.uniform(1.5, 2.5))
-
-            new_height = driver.execute_script("return document.body.scrollHeight")
-            if new_height == last_height:
-                scroll_attempts += 1
-                if scroll_attempts >= 3:
-                    break
-            else:
-                scroll_attempts = 0
-                last_height = new_height
+        # Filtrer par date si nécessaire
+        posts = filter_posts_by_date(posts, start_date, end_date)
 
         print(f"Scraped {len(posts)} posts from StockTwits HTML")
 
@@ -278,4 +331,156 @@ def parse_html_posts(page_source: str, seen_ids: set) -> list:
         except Exception:
             continue
 
+    return posts
+
+
+def enhanced_scroll_and_parse(driver, posts: list, seen_ids: set, limit: int, enhanced: bool = False) -> list:
+    """
+    Scroll amélioré avec actions de souris pour un comportement plus humain
+    """
+    last_height = driver.execute_script("return document.body.scrollHeight")
+    scroll_attempts = 0
+    consecutive_no_new = 0
+    max_scrolls = (limit // 10) + 10 if enhanced else (limit // 15) + 5
+    actions = ActionChains(driver)
+    initial_count = len(posts)
+    
+    while len(posts) < (initial_count + limit) and scroll_attempts < max_scrolls:
+        # Parse HTML
+        new_posts = parse_html_posts(driver.page_source, seen_ids)
+        
+        if new_posts:
+            posts.extend(new_posts)
+            consecutive_no_new = 0
+        else:
+            consecutive_no_new += 1
+            if consecutive_no_new >= 5:
+                break
+
+        if len(posts) >= (initial_count + limit):
+            break
+
+        # Scroll progressif plus humain
+        if enhanced:
+            # Scroll par petits incréments avec actions de souris
+            current_scroll = driver.execute_script("return window.pageYOffset;")
+            scroll_amount = random.randint(300, 600)
+            driver.execute_script(f"window.scrollBy(0, {scroll_amount});")
+            
+            # Simuler mouvement de souris
+            try:
+                body = driver.find_element(By.TAG_NAME, "body")
+                actions.move_to_element(body).perform()
+            except:
+                pass
+            
+            time.sleep(random.uniform(0.8, 1.5))
+        else:
+            # Scroll classique
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(random.uniform(1.5, 2.5))
+
+        new_height = driver.execute_script("return document.body.scrollHeight")
+        if new_height == last_height:
+            scroll_attempts += 1
+            if scroll_attempts >= 3:
+                # Essayer de cliquer sur "Load more" si disponible
+                try:
+                    load_more = driver.find_element(By.XPATH, "//button[contains(text(), 'Load') or contains(text(), 'More')]")
+                    if load_more.is_displayed():
+                        load_more.click()
+                        time.sleep(2)
+                        scroll_attempts = 0
+                        continue
+                except:
+                    pass
+                break
+        else:
+            scroll_attempts = 0
+            last_height = new_height
+
+    return posts
+
+
+def intercept_api_requests(driver, symbol: str, limit: int) -> list:
+    """
+    Intercepter les requêtes API que fait StockTwits pour charger plus de messages
+    NOTE: Cette méthode nécessite d'activer le domaine Network via CDP avant de charger la page
+    """
+    posts = []
+    
+    try:
+        # Activer le domaine Network pour intercepter les requêtes
+        driver.execute_cdp_cmd('Network.enable', {})
+        
+        # Récupérer les logs de performance (requêtes réseau)
+        logs = driver.get_log('performance')
+        
+        for log in logs:
+            try:
+                message = json.loads(log['message'])['message']
+                
+                # Chercher les requêtes API vers StockTwits
+                if message['method'] == 'Network.responseReceived':
+                    url = message['params']['response']['url']
+                    
+                    # Chercher les endpoints API de messages
+                    if 'api.stocktwits.com' in url or '/messages' in url or '/stream' in url:
+                        # Essayer d'extraire la réponse
+                        request_id = message['params']['requestId']
+                        try:
+                            response = driver.execute_cdp_cmd('Network.getResponseBody', {'requestId': request_id})
+                            if response and 'body' in response:
+                                body_data = json.loads(response['body'])
+                                # Parser les messages de la réponse API
+                                api_posts = parse_api_response(body_data, limit - len(posts))
+                                posts.extend(api_posts)
+                        except Exception as e:
+                            # L'interception API peut échouer silencieusement
+                            pass
+            except:
+                continue
+                
+    except Exception as e:
+        # Si l'interception échoue, on continue avec le scroll normal
+        print(f"API interception not available (fallback to scroll): {e}")
+    
+    return posts
+
+
+def parse_api_response(data: dict, limit: int) -> list:
+    """
+    Parser une réponse API de StockTwits
+    """
+    posts = []
+    
+    try:
+        # Plusieurs structures possibles selon l'endpoint
+        messages = (
+            data.get('messages', []) or
+            data.get('stream', {}).get('messages', []) or
+            data.get('data', {}).get('messages', []) or
+            []
+        )
+        
+        for msg in messages[:limit]:
+            sentiment = msg.get("entities", {}).get("sentiment", {})
+            human_label = sentiment.get("basic") if sentiment else None
+            
+            likes_data = msg.get("likes", {})
+            likes = likes_data.get("total", 0) if isinstance(likes_data, dict) else 0
+            
+            posts.append({
+                "id": str(msg.get("id", "")),
+                "title": msg.get("body", ""),
+                "text": "",
+                "score": likes,
+                "created_utc": msg.get("created_at"),
+                "source": "stocktwits",
+                "method": "selenium",
+                "human_label": human_label
+            })
+    except Exception as e:
+        print(f"API response parsing error: {e}")
+    
     return posts

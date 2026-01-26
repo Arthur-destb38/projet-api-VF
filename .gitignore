@@ -23,5 +23,12 @@ htmlcov/
 .env
 .env.*
 
-EOF
+# Streamlit secrets (ne pas commiter)
+.streamlit/secrets.toml
+
+# Données locales (ne pas commiter)
+data/*.jsonl
+data/*.db
 data/twitter_cookies.json
+data/exports/*
+!data/exports/.gitkeep

@@ -1,6 +1,15 @@
 """
-Twitter/X Scraper - Selenium avec login (methode Jose)
-Scrape les tweets crypto via recherche avancee
+Twitter/X Scraper - Selenium (login) + Nitter (fallback) + profils publics
+
+Pourquoi ça marche moins bien depuis 2023-2025:
+- X a supprimé l'API gratuite (payante ~42k$/an) et durcit l'anti-bot toutes les 2-4 semaines.
+- Guest tokens, doc_ids GraphQL, TLS fingerprinting, cookies: tout change souvent.
+- Login de plus en plus exigé (recherche + souvent profils). Selenium/headless est détecté.
+- IP datacenter bloquées. Même avec login, 2FA / "suspicious activity" cassent l'automatisation.
+
+Ce qu'on fait: login (si TWITTER_USERNAME/PASSWORD ou cookies) -> recherche avancee.
+Sinon: Nitter (frontend communautaire, sans login) en priorité, puis profils publics.
+Nitter reste instable (instances souvent down). Voir https://status.d420.de/
 """
 
 import time
@@ -200,7 +209,11 @@ def twitter_login(driver, username: str, password: str) -> bool:
             save_cookies(driver)
             return True
         
-        print("Twitter: Echec connexion - verifier les identifiants")
+        reason = detect_twitter_block_reason(driver.page_source)
+        if reason:
+            print(f"Twitter: {reason}")
+        else:
+            print("Twitter: Echec connexion - verifier les identifiants")
         return False
         
     except Exception as e:
@@ -390,30 +403,9 @@ def scrape_twitter(
             sort_mode=sort_mode
         )
     
-    # Sinon, mode sans login (profils publics)
+    # Sinon, mode sans login: Nitter (priorité) puis profils publics
     print("Twitter: Mode sans login (pas de cookies ni credentials)")
-    limit = min(limit, LIMITS["no_login"])
-    
-    # Mapper query vers comptes influents
-    crypto_accounts = get_crypto_accounts(query)
-    
-    print(f"Twitter (sans login): Scraping {len(crypto_accounts)} comptes crypto pour '{query}'...")
-    
-    all_posts = []
-    seen_ids = set()
-    
-    for account in crypto_accounts:
-        if len(all_posts) >= limit:
-            break
-            
-        posts = scrape_twitter_profile(account, limit // len(crypto_accounts) + 5, seen_ids, query)
-        all_posts.extend(posts)
-        print(f"  @{account}: {len(posts)} tweets")
-    
-    all_posts = all_posts[:limit]
-    
-    print(f"Twitter: Total {len(all_posts)} tweets scraped")
-    return all_posts
+    return scrape_twitter_no_login(query, limit)
 
 
 def scrape_twitter_with_login(
@@ -453,21 +445,26 @@ def scrape_twitter_with_login(
         
         # Verifier si on est connecte
         logged_in = is_logged_in(driver)
-        
         if not logged_in:
+            reason = detect_twitter_block_reason(driver.page_source)
+            if reason:
+                print(f"Twitter: {reason}")
             # Login necessaire
             print("Twitter: Login necessaire...")
             if not twitter_login(driver, username, password):
-                print("Twitter: Echec login, passage en mode sans login")
+                print("Twitter: Echec login, passage en fallback Nitter/profils")
                 driver.quit()
-                return scrape_twitter(query, min(limit, 100))  # Fallback
+                return scrape_twitter_no_login(query, min(limit, 100))
             
             # Re-verifier apres login
             logged_in = is_logged_in(driver)
             if not logged_in:
-                print("Twitter: Login semble avoir echoue")
+                reason = detect_twitter_block_reason(driver.page_source)
+                if reason:
+                    print(f"Twitter: {reason}")
+                print("Twitter: Login semble avoir echoue, fallback Nitter/profils")
                 driver.quit()
-                return []
+                return scrape_twitter_no_login(query, min(limit, 100))
         
         print("Twitter: Connecte! Lancement recherche avancee...")
         
@@ -494,8 +491,12 @@ def scrape_twitter_with_login(
                 driver.get(search_url)
                 human_delay(4, 6)
             else:
+                reason = detect_twitter_block_reason(driver.page_source)
+                if reason:
+                    print(f"Twitter: {reason}")
+                print("Twitter: Re-login impossible, fallback Nitter/profils")
                 driver.quit()
-                return []
+                return scrape_twitter_no_login(query, min(limit, 100))
         
         # Scroll et collecter les tweets
         scroll_count = 0
@@ -539,6 +540,35 @@ def scrape_twitter_with_login(
         driver.quit()
     
     return posts
+
+
+def scrape_twitter_no_login(query: str, limit: int) -> list:
+    """
+    Scraping Twitter sans login: Nitter en priorité, puis profils publics.
+    X exige de plus en plus le login; Nitter (frontend communautaire) peut encore donner des résultats.
+    """
+    limit = min(limit, LIMITS["no_login"])
+    # 1. Nitter en priorité (instances communautaires, pas de login)
+    print("Twitter: Essai Nitter (fallback sans login)...")
+    posts = scrape_nitter(query, limit)
+    if posts:
+        print(f"Twitter: Nitter a renvoyé {len(posts)} tweets")
+        return posts[:limit]
+    # 2. Profils publics (souvent bloqué par X: is_login_wall)
+    print("Twitter: Nitter indisponible, essai profils publics...")
+    crypto_accounts = get_crypto_accounts(query)
+    all_posts = []
+    seen_ids = set()
+    for account in crypto_accounts:
+        if len(all_posts) >= limit:
+            break
+        pts = scrape_twitter_profile(account, limit // max(len(crypto_accounts), 1) + 5, seen_ids, query)
+        all_posts.extend(pts)
+        if pts:
+            print(f"  @{account}: {len(pts)} tweets")
+    all_posts = all_posts[:limit]
+    print(f"Twitter: Total {len(all_posts)} tweets (sans login)")
+    return all_posts
 
 
 def get_crypto_accounts(query: str) -> list:
@@ -628,6 +658,37 @@ def is_login_wall(driver) -> bool:
     ]
     
     return any(ind in page_source for ind in indicators)
+
+
+def detect_twitter_block_reason(page_source: str) -> str | None:
+    """
+    Détecte les messages de blocage / restriction X (compte ou accès).
+    Retourne une courte explication ou None si rien de spécifique.
+    """
+    low = page_source.lower()
+    # Compte suspendu (définitif ou long)
+    if "account suspended" in low or "compte suspendu" in low:
+        return "Compte suspendu par X. Vérifiez https://help.x.com ou la messagerie liée au compte."
+    if "suspended" in low and ("violat" in low or "rules" in low or "terms" in low):
+        return "Compte suspendu (violation des règles X)."
+    # Compte verrouillé / restriction temporaire (vérif phone/email)
+    if "temporarily restricted" in low or "restriction temporaire" in low:
+        return "Compte temporairement restreint. X demande une vérification (tél/email) sur x.com ou l’app."
+    if "account locked" in low or "compte verrouillé" in low or "unlock" in low:
+        return "Compte verrouillé. Débloquez-le via email/SMS sur x.com ou l’app X."
+    if "verify your identity" in low or "verify your phone" in low or "vérifiez" in low and "téléphone" in low:
+        return "X demande une vérification (téléphone ou email). Faites-le manuellement sur x.com."
+    # Rate limit / « réessayez plus tard »
+    if "try again later" in low or "réessayez plus tard" in low:
+        return "X limite les tentatives (« try again later »). Attendez 1–2 h puis réessayez (ou utilisez une autre IP)."
+    if "too many requests" in low or "rate limit" in low:
+        return "Trop de requêtes (rate limit). Pause d’au moins 1 h recommandée."
+    # Blocage / erreur générique
+    if "something went wrong" in low and ("try again" in low or "refresh" in low):
+        return "Erreur X (« something went wrong »). Réessayez plus tard ou avec une autre connexion."
+    if "blocked" in low and ("automated" in low or "unusual" in low or "suspicious" in low):
+        return "X détecte une activité automatisée ou suspecte. Utilisez un autre réseau ou désactivez le scraping un moment."
+    return None
 
 
 def parse_tweets(page_source: str, seen_ids: set, keyword: str = "") -> list:
@@ -740,15 +801,15 @@ def scrape_nitter(query: str, limit: int = 50) -> list:
     posts = []
     seen_ids = set()
     
-    # Instances Nitter actives (janvier 2026)
+    # Instances Nitter (frontend Twitter open-source, sans login)
+    # Beaucoup d'instances sont down; X a durci le blocage. Voir: https://status.d420.de/
     nitter_instances = [
+        "nitter.poast.org",           # ~86% uptime
+        "nitter.space",               # ~96% uptime
         "nitter.privacydev.net",
-        "nitter.poast.org",
         "nitter.lucabased.xyz",
         "nitter.woodland.cafe",
-        "nitter.esmailelbob.xyz",
         "nitter.d420.de",
-        "nitter.1d4.us",
     ]
     
     driver = setup_driver()
