@@ -172,9 +172,21 @@ def _ensure_sqlite_storage():
     return conn
 
 
+# Forcer SQLite local (mettre à False pour utiliser PostgreSQL cloud)
+# Table Supabase à utiliser
+POSTGRES_TABLE = "posts2"
+
+# Forcer SQLite local (mettre à True pour utiliser SQLite au lieu de PostgreSQL)
+FORCE_SQLITE = False
+
+
 def _get_connection():
     """Retourne une connexion PostgreSQL (cloud) ou SQLite (local)."""
-    # Essayer PostgreSQL d'abord
+    # Si FORCE_SQLITE est activé, utiliser SQLite directement
+    if FORCE_SQLITE:
+        return _ensure_sqlite_storage(), "sqlite"
+    
+    # Sinon, essayer PostgreSQL d'abord
     if POSTGRES_AVAILABLE:
         conn = _ensure_postgres_storage()
         if conn:
@@ -242,8 +254,8 @@ def save_posts(posts: list, source: str | None = None, method: str | None = None
         )
 
         if db_type == "postgres":
-            cur.execute("""
-                INSERT INTO posts (
+            cur.execute(f"""
+                INSERT INTO {POSTGRES_TABLE} (
                     uid, id, source, method, title, text, score, created_utc,
                     human_label, author, subreddit, url, num_comments, scraped_at
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -291,7 +303,7 @@ def get_all_posts(source: str | None = None, method: str | None = None, limit: i
     cur = conn.cursor()
     
     if db_type == "postgres":
-        query = "SELECT * FROM posts WHERE 1=1"
+        query = f"SELECT * FROM {POSTGRES_TABLE} WHERE 1=1"
         params = []
         
         if source:
@@ -389,13 +401,13 @@ def get_stats() -> dict:
     cur = conn.cursor()
     
     if db_type == "postgres":
-        cur.execute("SELECT COUNT(*) FROM posts")
+        cur.execute(f"SELECT COUNT(*) FROM {POSTGRES_TABLE}")
         total = cur.fetchone()[0]
         
-        cur.execute("SELECT source, method, COUNT(*) as count FROM posts GROUP BY source, method")
+        cur.execute(f"SELECT source, method, COUNT(*) as count FROM {POSTGRES_TABLE} GROUP BY source, method")
         by_source_method = [{"source": row[0], "method": row[1], "count": row[2]} for row in cur.fetchall()]
         
-        cur.execute("SELECT MIN(scraped_at), MAX(scraped_at) FROM posts")
+        cur.execute(f"SELECT MIN(scraped_at), MAX(scraped_at) FROM {POSTGRES_TABLE}")
         dates = cur.fetchone()
     else:
         cur.execute("SELECT COUNT(*) FROM posts")

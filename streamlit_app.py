@@ -24,16 +24,11 @@ from app.scrapers import scrape_4chan_biz, get_chan4_limits
 from app.scrapers import scrape_bitcointalk, get_bitcointalk_limits
 from app.scrapers import scrape_github_discussions, get_github_limits
 from app.scrapers import scrape_bluesky, get_bluesky_limits
+from app.scrapers import get_youtube_limits
 from app.nlp import load_finbert, load_cryptobert, analyze_finbert, analyze_cryptobert
 from app.utils import clean_text
 from app.prices import get_historical_prices, CryptoPrices
 from app.storage import save_posts, get_all_posts, export_to_csv, export_to_json, get_stats, DB_PATH, JSONL_PATH
-
-try:
-    from econometrics import run_full_analysis, run_demo_analysis
-    ECONO_OK = True
-except ImportError:
-    ECONO_OK = False
 
 # ============ PAGE CONFIG ============
 
@@ -386,15 +381,14 @@ CRYPTO_LIST = {
     "Ethereum": {"id": "ethereum", "sub": "ethereum", "stocktwits": "ETH.X", "icon": "Ξ"},
     "Solana": {"id": "solana", "sub": "solana", "stocktwits": "SOL.X", "icon": "◎"},
     "Cardano": {"id": "cardano", "sub": "cardano", "stocktwits": "ADA.X", "icon": "₳"},
-    "Dogecoin": {"id": "dogecoin", "sub": "dogecoin", "stocktwits": "DOGE.X", "icon": "Ð"},
-    "XRP": {"id": "ripple", "sub": "xrp", "stocktwits": "XRP.X", "icon": "✕"},
 }
 
 LIMITS = {
     "Reddit": {"HTTP": get_reddit_limits()["http"], "Selenium": get_reddit_limits()["selenium"]},
-    "StockTwits": {"Selenium": get_stocktwits_limits()["selenium"]},  # 1000 posts max avec scroll amélioré
-    "Twitter": {"Selenium": 100, "Login": 2000},  # Login = avec cookies (methode Jose)
+    "StockTwits": {"Selenium": get_stocktwits_limits()["selenium"]},
+    "Twitter": {"Selenium": 100, "Login": 2000},
     "Telegram": {"Simple": get_telegram_limits()["simple"], "Paginé": get_telegram_limits()["paginated"]},
+    "YouTube": {"API": 10000, "Selenium": get_youtube_limits()["selenium"]},
     "4chan": {"HTTP": get_chan4_limits()["http"]},
     "Bitcointalk": {"HTTP": get_bitcointalk_limits()["http"]},
     "GitHub": {"API": get_github_limits()["api"]},
@@ -411,8 +405,8 @@ def get_finbert():
 def get_cryptobert():
     return load_cryptobert()
 
-ACCUEIL_CRYPTO_IDS = ["bitcoin", "ethereum", "solana", "cardano", "dogecoin", "ripple"]
-ACCUEIL_CRYPTO_NAMES = ["Bitcoin", "Ethereum", "Solana", "Cardano", "Dogecoin", "XRP"]
+ACCUEIL_CRYPTO_IDS = ["bitcoin", "ethereum", "solana", "cardano"]
+ACCUEIL_CRYPTO_NAMES = ["Bitcoin", "Ethereum", "Solana", "Cardano"]
 
 @st.cache_data(ttl=300)
 def get_prices():
@@ -559,11 +553,11 @@ def page_accueil():
         prices = {}
         historical = {}
     if prices is not None:
-        # Ordre fixe : toujours 6 cryptos (Bitcoin, Ethereum, Solana, Cardano, Dogecoin, XRP)
+        # Grille 2x2 : 4 cryptos (Bitcoin, Ethereum, Solana, Cardano)
         order = ACCUEIL_CRYPTO_IDS
-        for row_start in range(0, len(order), 3):
-            row_ids = order[row_start:row_start + 3]
-            cols = st.columns(3)
+        for row_start in range(0, len(order), 2):
+            row_ids = order[row_start:row_start + 2]
+            cols = st.columns(2)
             for col_idx, cid in enumerate(row_ids):
                 display_name = ACCUEIL_CRYPTO_NAMES[ACCUEIL_CRYPTO_IDS.index(cid)]
                 data = prices.get(cid) if prices else None
@@ -634,7 +628,7 @@ def page_accueil():
     <div class="accueil-features">
         <div class="accueil-feature"><span class="accueil-feature-icon">📊</span> Dashboard & scraping multi-sources</div>
         <div class="accueil-feature"><span class="accueil-feature-icon">🤖</span> FinBERT & CryptoBERT</div>
-        <div class="accueil-feature"><span class="accueil-feature-icon">📈</span> Comparaison & économétrie</div>
+        <div class="accueil-feature"><span class="accueil-feature-icon">📈</span> Analyses & documentation</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -941,579 +935,182 @@ def display_results(results, source, model):
         st.download_button("Télécharger CSV", df.to_csv(index=False), "sentiment.csv", use_container_width=True)
 
 
-def page_compare():
-    render_header()
-    st.markdown("### Comparaison FinBERT vs CryptoBERT")
+def page_documentation():
+    """Page Documentation : méthodologie, sources, modèles, références."""
+    st.markdown("""
+    <div style="margin-bottom: 2rem;">
+        <h1 style="font-size: 2rem; font-weight: 700; color: #e0e7ff; margin-bottom: 0.5rem;">Documentation</h1>
+        <p style="color: #94a3b8; font-size: 1rem;">Méthodologie, sources de données, modèles NLP et références du projet Crypto Sentiment.</p>
+    </div>
+    """, unsafe_allow_html=True)
     
-    col1, col2 = st.columns([1, 3])
+    # Sommaire
+    st.markdown("---")
+    st.markdown("### Sommaire")
+    st.markdown("""
+    - [1. Vue d'ensemble](#1-vue-densemble)
+    - [2. Sources de données](#2-sources-de-données)
+    - [3. Modèles de sentiment](#3-modèles-de-sentiment)
+    - [4. Parcours utilisateur](#4-parcours-utilisateur)
+    - [5. Limites et bonnes pratiques](#5-limites-et-bonnes-pratiques)
+    - [6. Références](#6-références)
+    - [7. Comparaison dynamique FinBERT vs CryptoBERT](#7-comparaison-dynamique-finbert-vs-cryptobert)
+    """)
+    st.markdown("---")
     
-    with col1:
-        crypto = st.selectbox("Crypto", list(CRYPTO_LIST.keys()), key="cmp_crypto")
-        config = CRYPTO_LIST[crypto]
-        
-        source = st.radio("Source", ["Reddit", "StockTwits", "Twitter", "Telegram", "4chan", "Bitcointalk", "GitHub", "Bluesky"], key="cmp_source")
-        
-        telegram_channel = None
-        if source == "Reddit":
-            method = st.radio("Méthode", ["HTTP", "Selenium"], key="cmp_method")
-            max_limit = LIMITS["Reddit"][method]
-        elif source == "Twitter":
-            method = "Selenium"
-            max_limit = LIMITS["Twitter"]["Selenium"]
-        elif source == "Telegram":
-            method = st.radio("Méthode", ["Simple", "Paginé"], key="cmp_method_tg")
-            max_limit = LIMITS["Telegram"][method]
-            telegram_channel = st.selectbox("Channel", list(TELEGRAM_CHANNELS.keys()),
-                                           format_func=lambda x: f"{x}", key="cmp_tg_channel")
-        elif source == "4chan":
-            method = "HTTP"
-            max_limit = LIMITS["4chan"]["HTTP"]
-        elif source == "Bitcointalk":
-            method = "HTTP"
-            max_limit = LIMITS["Bitcointalk"]["HTTP"]
-        elif source == "GitHub":
-            method = "API"
-            max_limit = LIMITS["GitHub"]["API"]
-        elif source == "Bluesky":
-            method = "API"
-            max_limit = LIMITS["Bluesky"]["API"]
+    st.markdown("### 1. Vue d'ensemble")
+    st.markdown("""
+    **Crypto Sentiment** permet de collecter des discussions crypto sur plusieurs plateformes (Reddit, Twitter, Telegram, StockTwits, 4chan, Bitcointalk, GitHub, Bluesky, YouTube), 
+    de les analyser avec des modèles de langage spécialisés (**FinBERT** et **CryptoBERT**) et de comparer le sentiment aux mouvements de prix.
+    
+    Les données sont stockées en base (SQLite en local ou PostgreSQL en cloud) et peuvent être filtrées par source, méthode et nombre de posts pour les analyses.
+    """)
+    
+    st.markdown("### 2. Sources de données")
+    st.markdown("""
+    | Source | Méthode | Max posts | Vitesse | Labels Bullish/Bearish |
+    |--------|---------|-----------|---------|------------------------|
+    | Reddit | HTTP | 1000 | ~1–5 s | Non |
+    | Reddit | Selenium | 200 | ~10–30 s | Non |
+    | Twitter | Selenium / Login | 100 / 2000 | Variable | Non |
+    | Telegram | Simple / Paginé | 30 / 2000 | Variable | Non |
+    | StockTwits | Selenium | 1000 | ~30–60 s | **Oui** |
+    | 4chan /biz/ | HTTP | 200 | Rapide | Non |
+    | Bitcointalk | HTTP | 200 | Variable | Non |
+    | GitHub | API | 200 | Rapide | Non |
+    | Bluesky | API | 200 | Rapide | Non |
+    | YouTube | API | 10000 | Variable | Non |
+    
+    **Note :** StockTwits fournit des labels Bullish/Bearish natifs. 4chan utilise HTTP uniquement (pas Selenium).
+    """)
+    
+    st.markdown("### 3. Modèles de sentiment")
+    st.markdown("""
+    | Modèle | Entraînement | Labels de sortie |
+    |--------|---------------|------------------|
+    | **FinBERT** (ProsusAI/finbert) | News financières | Positive / Negative / Neutral → score et label Bullish/Bearish/Neutral |
+    | **CryptoBERT** (ElKulako/cryptobert) | ~3,2 M de posts crypto | Bullish / Bearish / Neutral |
+    
+    Les deux modèles renvoient un **score** (entre -1 et 1) et un **label**. CryptoBERT est entraîné sur StockTwits, Telegram, Reddit et Twitter.
+    """)
+    
+    st.markdown("### 4. Parcours utilisateur")
+    st.markdown("""
+    - **Accueil :** vue d'ensemble, prix en direct (4 cryptos) et mini-graphiques d'évolution.
+    - **Scraping :** choix de la plateforme (Reddit, Twitter, Telegram, StockTwits, 4chan, Bitcointalk, GitHub, Bluesky, YouTube), configuration (crypto, nombre de posts, filtres optionnels), lancement du scraping. Les posts sont enregistrés en base.
+    - **Données :** consultation des posts stockés, statistiques par source/méthode, export CSV/JSON.
+    - **Analyses des résultats :** filtrage des posts (source, méthode, nombre), analyse globale (FinBERT ou CryptoBERT) ou analyse multi-crypto (filtre par mots-clés par crypto).
+    - **Documentation :** cette page.
+    """)
+    
+    st.markdown("### 5. Limites et bonnes pratiques")
+    st.markdown("""
+    - **Reddit HTTP :** max 1000 posts, respecter ~1 req/s pour limiter les bans.
+    - **Reddit Selenium :** max 200 posts, plus lent.
+    - **StockTwits :** max 1000 posts avec scroll amélioré ; Cloudflare impose l'usage de Selenium.
+    - **Twitter :** fortement limité sans authentification ; risque de blocage.
+    - **Bluesky / GitHub :** configurer les identifiants (Bluesky) ou token (GitHub) si nécessaire.
+    """)
+    
+    st.markdown("### 6. Références")
+    st.markdown("""
+    - **FinBERT :** [ProsusAI/finbert](https://huggingface.co/ProsusAI/finbert) — analyse de sentiment sur texte financier.
+    - **CryptoBERT :** ElKulako/cryptobert — *IEEE Intelligent Systems* 38(4), 2023 ; entraîné sur données crypto.
+    - Kraaijeveld & De Smedt (2020) — *The predictive power of Twitter sentiment* pour la relation sentiment–prix.
+    """)
+    
+    st.markdown("---")
+    st.markdown("### 7. Comparaison dynamique FinBERT vs CryptoBERT")
+    st.markdown("Saisis un court texte (ou choisis un exemple) pour comparer en direct la sortie des deux modèles.")
+    
+    SAMPLES = [
+        "Bitcoin is going to the moon, buy the dip!",
+        "ETH is crashing, sell everything before it's too late.",
+        "Cardano partnership announced, very bullish for ADA.",
+        "The market is sideways, no clear direction.",
+        "BTC at 100k by end of year, massive institutional adoption.",
+    ]
+    
+    if "doc_compare_text" not in st.session_state:
+        st.session_state.doc_compare_text = ""
+    
+    manual_entry = "— Saisir manuellement —"
+    col_sample, col_analyze = st.columns([2, 1])
+    with col_sample:
+        sample_choice = st.selectbox(
+            "Exemple de phrase",
+            [manual_entry] + SAMPLES,
+            key="doc_sample"
+        )
+    with col_analyze:
+        st.markdown("")
+        st.markdown("")
+        run_compare = st.button("Comparer", type="primary", use_container_width=True, key="doc_compare_btn")
+    
+    # Zone "Texte à analyser" uniquement en mode saisie manuelle
+    if sample_choice == manual_entry:
+        text_input = st.text_area(
+            "Texte à analyser",
+            value=st.session_state.doc_compare_text,
+            height=100,
+            placeholder="Ex: Bitcoin is pumping, very bullish!",
+            key="doc_compare_text"
+        )
+        text_to_analyze = text_input
+    else:
+        text_to_analyze = sample_choice
+    
+    if run_compare and text_to_analyze and len(text_to_analyze.strip()) >= 5:
+        text_clean = clean_text(text_to_analyze.strip())
+        if not text_clean or len(text_clean) < 5:
+            st.warning("Texte trop court ou vide après nettoyage.")
         else:
-            method = "Selenium"
-            max_limit = LIMITS["StockTwits"]["Selenium"]
-        
-        limit = st.slider("Posts", 20, max_limit, min(50, max_limit), key="cmp_limit")
-        run = st.button("Comparer", use_container_width=True, key="cmp_run")
-    
-    with col2:
-        if run:
-            with st.spinner("Scraping..."):
-                posts = scrape_data(source, config, limit, method, telegram_channel, crypto)
+            with st.spinner("Chargement des modèles et analyse…"):
+                fin_tok, fin_mod = get_finbert()
+                cry_tok, cry_mod = get_cryptobert()
+                out_fin = analyze_finbert(text_clean, fin_tok, fin_mod)
+                out_cry = analyze_cryptobert(text_clean, cry_tok, cry_mod)
             
-            if not posts:
-                st.error("Aucun post")
-                return
-            
-            with st.spinner("Analyse..."):
-                fin_tok, fin_mod, _ = get_model("FinBERT")
-                cry_tok, cry_mod, _ = get_model("CryptoBERT")
-                
-                results = []
-                progress = st.progress(0)
-                
-                for i, post in enumerate(posts):
-                    text = clean_text(post["title"])
-                    if not text:
-                        continue
-                    
-                    fin = analyze_finbert(text, fin_tok, fin_mod)
-                    cry = analyze_cryptobert(text, cry_tok, cry_mod)
-                    
-                    results.append({
-                        "text": text[:50],
-                        "human_label": post.get("human_label"),
-                        "finbert_score": fin["score"],
-                        "finbert_label": fin["label"],
-                        "cryptobert_score": cry["score"],
-                        "cryptobert_label": cry["label"]
-                    })
-                    progress.progress((i + 1) / len(posts))
-            
-            df = pd.DataFrame(results)
-            
-            cols = st.columns(2)
-            with cols[0]:
-                render_metric_card("FinBERT", f"{df['finbert_score'].mean():+.3f}")
-            with cols[1]:
-                render_metric_card("CryptoBERT", f"{df['cryptobert_score'].mean():+.3f}")
-            
-            labeled = df[df['human_label'].notna()]
-            if len(labeled) > 0:
-                fin_acc = (labeled['finbert_label'] == labeled['human_label']).mean() * 100
-                cry_acc = (labeled['cryptobert_label'] == labeled['human_label']).mean() * 100
-                
-                st.markdown("### Accuracy vs labels humains")
-                cols = st.columns(2)
-                with cols[0]:
-                    render_metric_card("FinBERT", f"{fin_acc:.1f}%")
-                with cols[1]:
-                    render_metric_card("CryptoBERT", f"{cry_acc:.1f}%")
-                
-                winner = "CryptoBERT" if cry_acc > fin_acc else "FinBERT"
-                diff = abs(cry_acc - fin_acc)
-                st.markdown(f"""
-                <div class="success-box">
-                    <strong>{winner} gagne!</strong> (+{diff:.1f}%)
-                </div>
-                """, unsafe_allow_html=True)
-            
-            fig = px.scatter(df, x='finbert_score', y='cryptobert_score', color_discrete_sequence=['#8b5cf6'])
-            fig.add_hline(y=0, line_dash="dash", line_color="#64748b")
-            fig.add_vline(x=0, line_dash="dash", line_color="#64748b")
-            fig.update_layout(
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='white'),
-                xaxis=dict(gridcolor='rgba(255,255,255,0.1)', title="FinBERT"),
-                yaxis=dict(gridcolor='rgba(255,255,255,0.1)', title="CryptoBERT"),
-                height=400
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-
-def page_multi():
-    render_header()
-    st.markdown("### Analyse Multi-Crypto Comparative")
-    
-    col1, col2 = st.columns([1, 3])
-    
-    with col1:
-        selected = st.multiselect("Cryptos", list(CRYPTO_LIST.keys()),
-                                  default=["Bitcoin", "Ethereum", "Solana"], key="multi_crypto")
-        
-        source = st.radio("Source", ["Reddit", "StockTwits", "Twitter", "Telegram", "4chan", "Bitcointalk", "GitHub", "Bluesky"], key="multi_source")
-        
-        telegram_channel = None
-        if source == "Reddit":
-            method = st.radio("Méthode", ["HTTP", "Selenium"], key="multi_method")
-            max_limit = LIMITS["Reddit"][method]
-        elif source == "Twitter":
-            method = "Selenium"
-            max_limit = LIMITS["Twitter"]["Selenium"]
-        elif source == "Telegram":
-            method = st.radio("Méthode", ["Simple", "Paginé"], key="multi_method_tg")
-            max_limit = LIMITS["Telegram"][method]
-            telegram_channel = st.selectbox("Channel", list(TELEGRAM_CHANNELS.keys()),
-                                           format_func=lambda x: f"{x}", key="multi_tg_channel")
-        elif source == "4chan":
-            method = "HTTP"
-            max_limit = LIMITS["4chan"]["HTTP"]
-            telegram_channel = None
-        elif source == "Bitcointalk":
-            method = "HTTP"
-            max_limit = LIMITS["Bitcointalk"]["HTTP"]
-            telegram_channel = None
-        elif source == "GitHub":
-            method = "API"
-            max_limit = LIMITS["GitHub"]["API"]
-            telegram_channel = None
-        elif source == "Bluesky":
-            method = "API"
-            max_limit = LIMITS["Bluesky"]["API"]
-            telegram_channel = None
-        else:
-            method = "Selenium"
-            max_limit = LIMITS["StockTwits"]["Selenium"]
-        
-        model = st.radio("Modèle", ["FinBERT", "CryptoBERT"], key="multi_model")
-        
-        # Limite adaptée au nombre de cryptos (éviter les bans)
-        nb_cryptos = len(selected) if selected else 1
-        safe_limit = min(max_limit, max(20, 200 // nb_cryptos))  # Répartir pour éviter ban
-        
-        limit = st.slider("Posts/crypto", 20, max_limit, safe_limit, key="multi_limit")
-        
-        # Warning si risque de ban
-        total_posts = limit * nb_cryptos
-        st.markdown(f"""
-        <div class="info-box">
-            <strong>Total estimé:</strong> {total_posts} posts<br>
-            <small>Limite {source}: {max_limit}/crypto</small>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        if total_posts > 500:
-            st.markdown("""
-            <div class="warning-box">
-                <strong>Attention</strong><br>
-                <small>Beaucoup de posts = risque de ban. Réduire si erreur.</small>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        run = st.button("Analyser", use_container_width=True, key="multi_run")
-    
-    with col2:
-        if run and selected:
-            tokenizer, mod, analyze_fn = get_model(model)
-            
-            all_results = []
-            all_posts_data = {}  # Stocker tous les posts pour détails
-            progress = st.progress(0)
-            status = st.empty()
-            
-            for i, name in enumerate(selected):
-                status.text(f"Scraping {name}...")
-                config = CRYPTO_LIST[name]
-                posts = scrape_data(source, config, limit, method, telegram_channel, name)
-                
-                if posts:
-                    scores = []
-                    labels = {"Bullish": 0, "Bearish": 0, "Neutral": 0}
-                    post_details = []
-                    correct = 0
-                    labeled_count = 0
-                    
-                    for post in posts:
-                        text = clean_text(post["title"])
-                        if text:
-                            s = analyze_fn(text, tokenizer, mod)
-                            scores.append(s["score"])
-                            labels[s["label"]] += 1
-                            
-                            # Accuracy si StockTwits
-                            if post.get("human_label"):
-                                labeled_count += 1
-                                if s["label"] == post["human_label"]:
-                                    correct += 1
-                            
-                            post_details.append({
-                                "text": text[:50],
-                                "score": s["score"],
-                                "label": s["label"],
-                                "human_label": post.get("human_label")
-                            })
-                    
-                    accuracy = round(correct / labeled_count * 100, 1) if labeled_count > 0 else None
-                    
-                    all_results.append({
-                        "Crypto": name,
-                        "Posts": len(scores),
-                        "Sentiment": round(np.mean(scores), 4) if scores else 0,
-                        "Std": round(np.std(scores), 4) if scores else 0,
-                        "Bullish": labels["Bullish"],
-                        "Bearish": labels["Bearish"],
-                        "Neutral": labels["Neutral"],
-                        "Bullish%": round(labels["Bullish"] / len(scores) * 100, 1) if scores else 0,
-                        "Accuracy": accuracy
-                    })
-                    all_posts_data[name] = post_details
-                
-                progress.progress((i + 1) / len(selected))
-            
-            status.empty()
-            
-            if not all_results:
-                st.error("Aucun résultat")
-                return
-            
-            df = pd.DataFrame(all_results)
-            
-            # === METRIQUES GLOBALES ===
-            st.markdown("### Vue d'ensemble")
-            
-            best_crypto = df.loc[df["Sentiment"].idxmax(), "Crypto"]
-            worst_crypto = df.loc[df["Sentiment"].idxmin(), "Crypto"]
-            avg_sentiment = df["Sentiment"].mean()
-            
-            cols = st.columns(4)
-            with cols[0]:
-                render_metric_card("Cryptos analysées", len(df))
-            with cols[1]:
-                render_metric_card("Sentiment moyen", f"{avg_sentiment:+.3f}")
-            with cols[2]:
-                render_metric_card("Plus haussier", best_crypto, f"{df.loc[df['Crypto']==best_crypto, 'Sentiment'].values[0]:+.3f}", "positive")
-            with cols[3]:
-                render_metric_card("Plus baissier", worst_crypto, f"{df.loc[df['Crypto']==worst_crypto, 'Sentiment'].values[0]:+.3f}", "negative")
-            
-            # === GRAPHIQUE COMPARATIF ===
-            st.markdown("### Comparaison des sentiments")
-            
-            fig = go.Figure(data=[go.Bar(
-                x=df["Crypto"],
-                y=df["Sentiment"],
-                marker=dict(
-                    color=df["Sentiment"],
-                    colorscale=[[0, '#f87171'], [0.5, '#64748b'], [1, '#4ade80']],
-                    cmin=-0.5,
-                    cmax=0.5
-                ),
-                text=[f"{s:+.3f}" for s in df["Sentiment"]],
-                textposition='outside',
-                textfont=dict(color='white')
-            )])
-            fig.add_hline(y=0, line_dash="dash", line_color="#64748b")
-            fig.update_layout(
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='white'),
-                xaxis=dict(gridcolor='rgba(255,255,255,0.1)'),
-                yaxis=dict(gridcolor='rgba(255,255,255,0.1)', title="Sentiment Score"),
-                height=350,
-                margin=dict(t=30, b=30)
-            )
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # === DISTRIBUTION PAR CRYPTO ===
-            st.markdown("### Distribution Bullish/Bearish/Neutral")
-            
-            cols = st.columns(min(len(df), 3))
-            for i, row in df.iterrows():
-                with cols[i % 3]:
-                    fig = go.Figure(data=[go.Pie(
-                        labels=["Bullish", "Bearish", "Neutral"],
-                        values=[row["Bullish"], row["Bearish"], row["Neutral"]],
-                        hole=0.5,
-                        marker=dict(colors=['#4ade80', '#f87171', '#64748b']),
-                        textinfo='percent',
-                        textfont=dict(size=11, color='white')
-                    )])
-                    fig.update_layout(
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        font=dict(color='white'),
-                        showlegend=False,
-                        title=dict(text=row["Crypto"], font=dict(size=14)),
-                        margin=dict(t=40, b=20, l=20, r=20),
-                        height=200
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-            
-            # === TABLEAU DETAILLE ===
-            st.markdown("### Détails par crypto")
-            
-            display_df = df[["Crypto", "Posts", "Sentiment", "Std", "Bullish%", "Accuracy"]].copy()
-            display_df.columns = ["Crypto", "Posts", "Sentiment", "Écart-type", "% Bullish", "Accuracy"]
-            display_df["Accuracy"] = display_df["Accuracy"].apply(lambda x: f"{x}%" if x else "-")
-            
-            st.dataframe(display_df, use_container_width=True)
-            
-            # === DETAILS PAR CRYPTO (expandable) ===
-            st.markdown("### Analyse détaillée par crypto")
-            
-            for name in selected:
-                if name in all_posts_data:
-                    with st.expander(f"{name} - {len(all_posts_data[name])} posts"):
-                        crypto_df = pd.DataFrame(all_posts_data[name])
-                        
-                        # Stats
-                        row = df[df["Crypto"] == name].iloc[0]
-                        c1, c2, c3, c4 = st.columns(4)
-                        c1.metric("Sentiment", f"{row['Sentiment']:+.3f}")
-                        c2.metric("Bullish", f"{row['Bullish%']}%")
-                        c3.metric("Bearish", f"{100 - row['Bullish%'] - (row['Neutral']/row['Posts']*100):.1f}%")
-                        if row["Accuracy"]:
-                            c4.metric("Accuracy", f"{row['Accuracy']}%")
-                        
-                        # Histogramme
-                        fig = go.Figure(data=[go.Histogram(
-                            x=crypto_df["score"],
-                            nbinsx=20,
-                            marker=dict(color='rgba(99, 102, 241, 0.7)')
-                        )])
-                        fig.add_vline(x=0, line_dash="dash", line_color="#64748b")
-                        fig.update_layout(
-                            paper_bgcolor='rgba(0,0,0,0)',
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            font=dict(color='white'),
-                            xaxis=dict(gridcolor='rgba(255,255,255,0.1)', title="Score"),
-                            yaxis=dict(gridcolor='rgba(255,255,255,0.1)'),
-                            height=200,
-                            margin=dict(t=10, b=30)
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-                        
-                        # Table posts
-                        st.dataframe(crypto_df, use_container_width=True, height=200)
-            
-            # === EXPORT ===
-            st.markdown("---")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.download_button("Télécharger résumé CSV", df.to_csv(index=False), "multi_crypto_summary.csv", use_container_width=True)
-
-
-def page_econometrie():
-    render_header()
-    st.markdown("### Analyse Économétrique")
-    
-    if not ECONO_OK:
-        st.error("Module econometrics.py non disponible")
-        return
-    
-    col1, col2 = st.columns([1, 3])
-    
-    with col1:
-        # Mode selection
-        mode = st.radio("Mode", ["Demo", "Données réelles"], key="eco_mode")
-        
-        if mode == "Demo":
-            st.markdown("""
-            <div class="info-box">
-                <strong>Mode Demo</strong><br>
-                <small>Données sentiment simulées sur 60 jours pour illustrer l'analyse</small>
-            </div>
-            """, unsafe_allow_html=True)
-            crypto = st.selectbox("Crypto", list(CRYPTO_LIST.keys()), key="eco_crypto")
-            config = CRYPTO_LIST[crypto]
-        else:
-            if 'results' not in st.session_state:
+            c1, c2 = st.columns(2)
+            with c1:
                 st.markdown("""
-                <div class="warning-box">
-                    <strong>Aucune donnée</strong><br>
-                    Lance d'abord une analyse sur le Dashboard
+                <div style="background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.35); border-radius: 12px; padding: 1.25rem;">
+                    <div style="font-weight: 600; color: #a5b4fc; margin-bottom: 0.5rem;">FinBERT</div>
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #e0e7ff;">{score:+.3f}</div>
+                    <div style="color: #94a3b8; font-size: 0.9rem;">Label : <strong>{label}</strong></div>
+                    <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #64748b;">positive {pos:.2f} · negative {neg:.2f} · neutral {neu:.2f}</div>
                 </div>
-                """, unsafe_allow_html=True)
-                crypto = None
-                config = None
-            else:
-                results = st.session_state['results']
-                crypto = st.session_state.get('crypto', 'Bitcoin')
-                config = st.session_state.get('config', CRYPTO_LIST['Bitcoin'])
-                st.info(f"{len(results)} posts ({crypto})")
-        
-        days = st.slider("Jours historiques", 30, 90, 60)
-        max_lag = st.slider("Lag max", 3, 10, 5)
-        run = st.button("Analyser", use_container_width=True)
-    
-    with col2:
-        if run:
-            if mode == "Demo":
-                with st.spinner("Analyse économétrique (demo)..."):
-                    output = run_demo_analysis(config['id'], days, max_lag)
-            else:
-                if 'results' not in st.session_state:
-                    st.error("Pas de données. Lance une analyse sur le Dashboard d'abord.")
-                    return
-                
-                results = st.session_state['results']
-                posts = [{"title": r.get("title", ""), "created_utc": r.get("created_utc")} for r in results]
-                sent = [{"score": r.get("sentiment_score", 0), "label": r.get("sentiment_label", "Neutral")} for r in results]
-                
-                with st.spinner("Analyse économétrique..."):
-                    output = run_full_analysis(posts, sent, config['id'], days, max_lag)
-            
-            if output["status"] == "error":
-                st.error(output.get("error"))
-                return
-            
-            # Badge mode demo
-            if output.get("mode") == "demo":
+                """.format(
+                    score=out_fin["score"],
+                    label=out_fin["label"],
+                    pos=out_fin.get("probs", {}).get("positive", 0),
+                    neg=out_fin.get("probs", {}).get("negative", 0),
+                    neu=out_fin.get("probs", {}).get("neutral", 0),
+                ), unsafe_allow_html=True)
+            with c2:
+                p = out_cry.get("probs", {})
                 st.markdown("""
-                <div style="background: rgba(139, 92, 246, 0.2); border: 1px solid #8b5cf6; padding: 10px; border-radius: 8px; margin-bottom: 16px; text-align: center;">
-                    <strong style="color: #c4b5fd;">MODE DEMO</strong> - Données sentiment simulées
+                <div style="background: rgba(139, 92, 246, 0.12); border: 1px solid rgba(139, 92, 246, 0.35); border-radius: 12px; padding: 1.25rem;">
+                    <div style="font-weight: 600; color: #c4b5fd; margin-bottom: 0.5rem;">CryptoBERT</div>
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #e0e7ff;">{score:+.3f}</div>
+                    <div style="color: #94a3b8; font-size: 0.9rem;">Label : <strong>{label}</strong></div>
+                    <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #64748b;">bullish {bull:.2f} · bearish {bear:.2f} · neutral {neu:.2f}</div>
                 </div>
-                """, unsafe_allow_html=True)
+                """.format(
+                    score=out_cry["score"],
+                    label=out_cry["label"],
+                    bull=p.get("bullish", 0),
+                    bear=p.get("bearish", 0),
+                    neu=p.get("neutral", 0),
+                ), unsafe_allow_html=True)
             
-            # Info données
-            info = output.get("data_info", {})
-            st.markdown(f"**Période:** {info.get('date_debut', 'N/A')} → {info.get('date_fin', 'N/A')} ({info.get('jours_merged', 0)} jours)")
-            
-            st.markdown("#### Tests de Stationnarité (ADF)")
-            adf = output["adf_tests"]
-            cols = st.columns(2)
-            with cols[0]:
-                s = adf.get("sentiment", {})
-                status = "Stationnaire" if s.get("stationary") else "Non stationnaire"
-                render_metric_card("Sentiment", status, f"p={s.get('pvalue', 'N/A')}")
-            with cols[1]:
-                r = adf.get("returns", {})
-                status = "Stationnaire" if r.get("stationary") else "Non stationnaire"
-                render_metric_card("Returns", status, f"p={r.get('pvalue', 'N/A')}")
-            
-            st.markdown("#### Causalité de Granger")
-            granger = output.get("granger", {})
-            if "error" not in granger:
-                cols = st.columns(2)
-                with cols[0]:
-                    s2r = granger.get("sentiment_to_returns", {})
-                    status = "Significatif" if s2r.get("significant") else "Non significatif"
-                    render_metric_card("Sentiment → Prix", status, f"lag={s2r.get('best_lag', 'N/A')}")
-                with cols[1]:
-                    r2s = granger.get("returns_to_sentiment", {})
-                    status = "Significatif" if r2s.get("significant") else "Non significatif"
-                    render_metric_card("Prix → Sentiment", status, f"lag={r2s.get('best_lag', 'N/A')}")
-            else:
-                st.warning(f"Granger: {granger.get('error')}")
-            
-            # Cross-correlation
-            cross = output.get("cross_corr", {})
-            if cross.get("best_lag") is not None:
-                st.markdown("#### Corrélation croisée")
-                best_lag = cross.get("best_lag")
-                best_corr = cross.get("best_correlation")
-                if best_lag > 0:
-                    interp = f"Sentiment précède les prix de {best_lag} jour(s)"
-                elif best_lag < 0:
-                    interp = f"Prix précèdent le sentiment de {-best_lag} jour(s)"
-                else:
-                    interp = "Relation contemporaine"
-                render_metric_card("Meilleure corrélation", f"r = {best_corr}", interp)
-            
-            # Graphique sentiment vs returns
-            if "merged_data" in output:
-                merged = output["merged_data"]
-                st.markdown("#### Évolution Sentiment vs Returns")
-                
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=merged['date'], y=merged['sentiment_mean'],
-                    name='Sentiment', line=dict(color='#8b5cf6', width=2)
-                ))
-                fig.add_trace(go.Scatter(
-                    x=merged['date'], y=merged['log_return'] * 10,
-                    name='Returns (x10)', line=dict(color='#4ade80', width=2)
-                ))
-                fig.update_layout(
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    font=dict(color='white'),
-                    xaxis=dict(gridcolor='rgba(255,255,255,0.1)'),
-                    yaxis=dict(gridcolor='rgba(255,255,255,0.1)'),
-                    height=300,
-                    margin=dict(t=20, b=40, l=40, r=20),
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02)
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            
-            st.markdown("#### Conclusion")
-            conclusion_text = output.get("conclusion", "Analyse terminée").replace("\n", "<br>")
-            st.markdown(f"""
-            <div class="info-box">
-                {conclusion_text}
-            </div>
-            """, unsafe_allow_html=True)
-
-
-def page_methodo():
-    render_header()
-    st.markdown("### Méthodologie")
+            if out_fin["label"] != out_cry["label"]:
+                st.caption("Les deux modèles donnent un label différent pour ce texte — FinBERT est entraîné sur la finance générale, CryptoBERT sur le jargon crypto.")
+    elif run_compare:
+        st.warning("Saisis au moins quelques mots (5 caractères minimum) puis clique sur **Comparer**.")
     
-    tabs = st.tabs(["Sources", "Modèles", "Limites", "Références"])
-    
-    with tabs[0]:
-        st.markdown("""
-        | Source | Méthode | Max posts | Vitesse | Labels |
-        |--------|---------|-----------|---------|--------|
-        | Reddit | HTTP | 1000 | ~1-5s | Non |
-        | Reddit | Selenium | 200 | ~10-30s | Non |
-        | StockTwits | Selenium | 1000 | ~30-60s | Oui (Bullish/Bearish) |
-        
-        **Note:** StockTwits utilise Cloudflare, seul Selenium fonctionne.
-        """)
-    
-    with tabs[1]:
-        st.markdown("""
-        | Modèle | Entraîné sur | Labels |
-        |--------|--------------|--------|
-        | **FinBERT** | News financières | Positive/Negative/Neutral |
-        | **CryptoBERT** | 3.2M posts crypto | Bullish/Bearish/Neutral |
-        
-        CryptoBERT: StockTwits (1.8M) + Telegram (664K) + Reddit (172K) + Twitter (496K)
-        """)
-    
-    with tabs[2]:
-        st.markdown("""
-        **Pour éviter les bans:**
-        - Reddit HTTP: max 1000 posts, 1 req/s
-        - Reddit Selenium: max 200 posts
-        - StockTwits: max 1000 posts (avec scroll amélioré)
-        """)
-    
-    with tabs[3]:
-        st.markdown("""
-        - **FinBERT:** ProsusAI/finbert
-        - **CryptoBERT:** ElKulako/cryptobert (IEEE Intelligent Systems 38(4), 2023)
-        - Kraaijeveld & De Smedt (2020) - Predictive power of Twitter sentiment
-        """)
+    st.markdown("---")
+    st.caption("Crypto Sentiment — MoSEF 2025-2026")
 
 
 # ============ PAGE DONNÉES STOCKÉES ============
@@ -1521,194 +1118,406 @@ def page_methodo():
 def page_stored_data():
     render_header()
     st.markdown("### Données Stockées")
-    
+
+    # --- Description ---
+    st.markdown("""
+    Cette page centralise **toutes les données collectées** par le scraping (Reddit, StockTwits, Telegram, Twitter, etc.).
+    Vous y trouvez les statistiques globales, des visualisations par source et méthode, l’évolution dans le temps,
+    et la possibilité de filtrer, consulter et exporter les posts.
+    """)
+    st.markdown("---")
+
     # Récupérer les statistiques
     stats = get_stats()
-    
-    # Affichage des métriques
-    col1, col2, col3 = st.columns(3)
-    
+    total = stats.get("total_posts", 0)
+
+    if total == 0:
+        st.warning("Aucune donnée en base. Collectez des posts via la page **Scraping**.")
+        return
+
+    # --- Métriques principales ---
+    st.markdown("#### Vue d’ensemble")
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
-        render_metric_card("Total Posts", f"{stats['total_posts']:,}")
-    
+        render_metric_card("Total Posts", f"{total:,}")
     with col2:
-        render_metric_card("Premier Scrape", stats['first_scrape'][:10] if stats['first_scrape'] else "N/A")
-    
+        first = stats.get("first_scrape") or "N/A"
+        render_metric_card("Premier Scrape", str(first)[:10] if first != "N/A" else "N/A")
     with col3:
-        render_metric_card("Dernier Scrape", stats['last_scrape'][:10] if stats['last_scrape'] else "N/A")
-    
+        last = stats.get("last_scrape") or "N/A"
+        render_metric_card("Dernier Scrape", str(last)[:10] if last != "N/A" else "N/A")
+    with col4:
+        db_label = "Supabase" if stats.get("db_type") == "postgres" else "SQLite"
+        render_metric_card("Base", db_label)
+
     st.markdown("---")
-    
-    # Répartition par source/méthode
-    if stats['by_source_method']:
-        st.markdown("#### Répartition par Source et Méthode")
-        df_stats = pd.DataFrame(stats['by_source_method'])
-        
-        fig = px.bar(
-            df_stats,
-            x='source',
-            y='count',
-            color='method',
-            barmode='group',
-            title='Nombre de posts par source et méthode',
-            color_discrete_sequence=['#818cf8', '#22d3ee']
-        )
-        fig.update_layout(
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            font_color='#e0e7ff'
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    
+
+    # --- Données pour les graphiques avancés ---
+    sample_posts = get_all_posts(limit=min(5000, total))
+
+    if "data_viz_tab" not in st.session_state:
+        st.session_state.data_viz_tab = "overview"
+
+    # Boutons étalés sur toute la largeur (4 colonnes)
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        if st.button("Répartition par source", use_container_width=True, key="btn_overview"):
+            st.session_state.data_viz_tab = "overview"
+    with col2:
+        if st.button("Source × Méthode", use_container_width=True, key="btn_sources"):
+            st.session_state.data_viz_tab = "sources"
+    with col3:
+        if st.button("Évolution temporelle", use_container_width=True, key="btn_timeline"):
+            st.session_state.data_viz_tab = "timeline"
+    with col4:
+        if st.button("Scores & texte", use_container_width=True, key="btn_scores"):
+            st.session_state.data_viz_tab = "scores"
+
     st.markdown("---")
-    
-    # Filtres
+
+    # Graphiques en dessous selon le bouton sélectionné
+    if st.session_state.data_viz_tab == "overview":
+        st.markdown("Répartition du volume de posts **par source** (Reddit, StockTwits, Telegram, etc.).")
+        if stats.get("by_source_method"):
+            df_sm = pd.DataFrame(stats["by_source_method"])
+            by_source = df_sm.groupby("source", as_index=False)["count"].sum()
+            fig_pie = px.pie(
+                by_source, values="count", names="source",
+                title="Répartition par source",
+                color_discrete_sequence=px.colors.qualitative.Set2
+            )
+            fig_pie.update_layout(
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)",
+                font_color="#e0e7ff",
+                legend_font_color="#e0e7ff"
+            )
+            st.plotly_chart(fig_pie, use_container_width=True)
+        st.markdown("---")
+        st.markdown("**💡 Interprétation** — La répartition par source montre quelles plateformes alimentent le plus votre base. Une source dominante (ex. Reddit) indique un biais vers ce type de discours ; une répartition plus équilibrée donne un échantillon plus diversifié pour l’analyse de sentiment crypto.")
+
+    elif st.session_state.data_viz_tab == "sources":
+        st.markdown("Nombre de posts par **source** et **méthode** de collecte (scraper, selenium, api, etc.).")
+        if stats.get("by_source_method"):
+            df_stats = pd.DataFrame(stats["by_source_method"])
+            fig_bar = px.bar(
+                df_stats, x="source", y="count", color="method",
+                barmode="group",
+                title="Posts par source et méthode",
+                color_discrete_sequence=["#818cf8", "#22d3ee", "#a78bfa", "#34d399"]
+            )
+            fig_bar.update_layout(
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)",
+                font_color="#e0e7ff",
+                legend_font_color="#e0e7ff"
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
+        st.markdown("---")
+        st.markdown("**💡 Interprétation** — Chaque source peut être collectée via plusieurs méthodes (scraper, selenium, api…). Les barres groupées permettent de voir quelle méthode est la plus utilisée par source et d’identifier d’éventuels déséquilibres ou sources à renforcer.")
+
+    elif st.session_state.data_viz_tab == "timeline":
+        st.markdown("Évolution du volume de données **dans le temps** (date d’ajout en base).")
+        if sample_posts:
+            df_t = pd.DataFrame(sample_posts)
+            if "scraped_at" in df_t.columns and df_t["scraped_at"].notna().any():
+                df_t["scraped_at"] = pd.to_datetime(df_t["scraped_at"], errors="coerce")
+                df_t = df_t.dropna(subset=["scraped_at"])
+                df_t["date"] = df_t["scraped_at"].dt.date
+                daily = df_t.groupby("date", as_index=False).size()
+                fig_time = px.line(
+                    daily, x="date", y="size",
+                    title="Posts ajoutés par jour (échantillon)",
+                    labels={"size": "Nombre de posts", "date": "Date"}
+                )
+                fig_time.update_layout(
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    font_color="#e0e7ff"
+                )
+                st.plotly_chart(fig_time, use_container_width=True)
+                st.markdown("---")
+                st.markdown("**💡 Interprétation** — La courbe reflète l’activité de collecte dans le temps. Les pics correspondent à des sessions de scraping intenses ; une base régulièrement alimentée donne une série plus lisse et un échantillon temporellement plus représentatif.")
+            else:
+                st.caption("Pas de dates de scrape disponibles pour cet échantillon.")
+        else:
+            st.caption("Aucune donnée pour afficher la timeline.")
+
+    else:
+        st.markdown("Distribution des **scores** (upvotes, etc.) et longueur des textes.")
+        if sample_posts:
+            df_s = pd.DataFrame(sample_posts)
+            c1, c2 = st.columns(2)
+            with c1:
+                if "score" in df_s.columns and df_s["score"].notna().any():
+                    df_s["score"] = pd.to_numeric(df_s["score"], errors="coerce").fillna(0).astype(int)
+                    fig_score = px.histogram(
+                        df_s, x="score", nbins=50,
+                        title="Distribution des scores",
+                        labels={"score": "Score", "count": "Nombre"}
+                    )
+                    fig_score.update_layout(
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        font_color="#e0e7ff"
+                    )
+                    st.plotly_chart(fig_score, use_container_width=True)
+                else:
+                    st.caption("Colonne score absente ou vide.")
+            with c2:
+                if "text" in df_s.columns:
+                    df_s["text_len"] = df_s["text"].fillna("").str.len()
+                    fig_len = px.histogram(
+                        df_s, x="text_len", nbins=50,
+                        title="Longueur des textes (caractères)",
+                        labels={"text_len": "Longueur", "count": "Nombre"}
+                    )
+                    fig_len.update_layout(
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        font_color="#e0e7ff"
+                    )
+                    st.plotly_chart(fig_len, use_container_width=True)
+        else:
+            st.caption("Aucune donnée pour les graphiques.")
+        st.markdown("---")
+        st.markdown("**💡 Interprétation** — *Scores* : la plupart des posts ont souvent un score faible (distribution en L) ; les posts à fort score sont plus « visibles » et peuvent peser plus dans le sentiment. *Longueur des textes* : une concentration sur les courtes longueurs est typique des réseaux sociaux ; les textes très longs (articles, threads) sont moins nombreux mais souvent plus riches pour l’analyse.")
+
+    st.markdown("---")
     st.markdown("#### Consulter les Données")
-    
+
     col1, col2, col3 = st.columns(3)
     with col1:
-        source_filter = st.selectbox("Source", ["Toutes", "reddit", "stocktwits", "telegram"])
+        source_filter = st.selectbox("Source", ["Toutes", "reddit", "stocktwits", "telegram", "twitter", "youtube", "bluesky"], key="data_source")
     with col2:
-        method_filter = st.selectbox("Méthode", ["Toutes", "http", "selenium"])
+        method_filter = st.selectbox("Méthode", ["Toutes", "http", "selenium", "scraper", "api", "selenium_login"], key="data_method")
     with col3:
-        limit = st.number_input("Limite", min_value=10, max_value=1000, value=100)
-    
-    # Récupérer les données
+        limit = st.number_input("Limite", min_value=10, max_value=1000, value=100, key="data_limit")
+
     source = source_filter if source_filter != "Toutes" else None
     method = method_filter if method_filter != "Toutes" else None
-    
     posts = get_all_posts(source=source, method=method, limit=limit)
-    
+
     if posts:
         st.success(f"{len(posts)} posts trouvés")
-        
-        # Afficher en DataFrame
         df = pd.DataFrame(posts)
         st.dataframe(df, use_container_width=True)
-        
-        # Boutons d'export
+
         st.markdown("#### Exporter les Données")
         col1, col2 = st.columns(2)
-        
         with col1:
-            if st.button("Exporter en CSV"):
+            if st.button("Exporter en CSV", key="export_csv"):
                 csv_path = export_to_csv(source=source, method=method)
                 st.success(f"Exporté vers: {csv_path}")
-        
         with col2:
-            if st.button("Exporter en JSON"):
+            if st.button("Exporter en JSON", key="export_json"):
                 json_path = export_to_json(source=source, method=method)
                 st.success(f"Exporté vers: {json_path}")
     else:
         st.warning("Aucune donnée trouvée avec ces filtres.")
-    
-    # Informations sur les fichiers
+
     st.markdown("---")
-    st.markdown("#### Localisation des Fichiers")
+    st.markdown("#### Stockage & Fichiers")
+    st.markdown("Les posts sont enregistrés en base (Supabase ou SQLite) et sauvegardés en backup dans un fichier JSONL.")
     st.code(f"""
-Base de données SQLite: {stats.get('db_path', DB_PATH)}
-Fichier JSONL: {stats.get('jsonl_path', JSONL_PATH)}
-Exports CSV/JSON: data/exports/
+Base: {stats.get('db_type', 'N/A')}
+SQLite (local): {DB_PATH}
+JSONL (backup): {JSONL_PATH}
+Exports: data/exports/
     """)
 
 
 # ============ PAGE ANALYSES DES RÉSULTATS ============
 
 def page_analyses_resultats():
-    """Page pour sélectionner des données en base et les analyser avec FinBERT ou CryptoBERT."""
-    st.markdown("""
-    <div style="margin-bottom: 1.5rem;">
-        <h2 style="font-size: 1.8rem; font-weight: 600; color: #e0e7ff; margin-bottom: 0.3rem;">Analyses des résultats</h2>
-        <p style="color: #64748b; font-size: 0.9rem;">Choisir des données en base et les analyser avec FinBERT ou CryptoBERT</p>
-    </div>
-    """, unsafe_allow_html=True)
+    """Page d'analyse sentiment avec onglets."""
+    render_header()
+    
+    st.title("🔬 Analyse de Sentiment")
     
     stats = get_stats()
-    if stats.get("total_posts", 0) == 0:
-        st.warning("Aucune donnée en base. Allez sur **Scraping** pour collecter des posts, puis revenez ici.")
+    total_posts = stats.get("total_posts", 0)
+    
+    if total_posts == 0:
+        st.warning("Aucune donnée en base. Collectez d'abord des posts via **Scraping**.")
         return
     
-    by_sm = stats.get("by_source_method") or []
-    sources = sorted(set(s["source"] for s in by_sm))
-    methods = sorted(set(s["method"] for s in by_sm))
-    
-    col1, col2, col3, col4 = st.columns(4)
+    # Métriques rapides en haut
+    col1, col2, col3 = st.columns(3)
     with col1:
-        source_filter = st.selectbox("Source", ["Toutes"] + sources, key="analyses_source")
+        st.metric("Posts en base", f"{total_posts:,}")
     with col2:
-        method_filter = st.selectbox("Méthode", ["Toutes"] + methods, key="analyses_method")
+        sources_count = len(set(s["source"] for s in stats.get("by_source_method", [])))
+        st.metric("Sources", sources_count)
     with col3:
-        limit = st.number_input("Nombre de posts", min_value=10, max_value=2000, value=200, key="analyses_limit")
-    with col4:
-        model_choice = st.radio("Modèle", ["FinBERT", "CryptoBERT"], key="analyses_model", horizontal=True)
+        db_type = stats.get("db_type", "sqlite")
+        st.metric("Base", "Cloud" if db_type == "postgres" else "Local")
     
-    st.markdown("---")
+    st.divider()
     
-    if st.button("Lancer l'analyse", type="primary", key="analyses_run"):
-        source = source_filter if source_filter != "Toutes" else None
-        method = method_filter if method_filter != "Toutes" else None
-        posts = get_all_posts(source=source, method=method, limit=limit)
+    # Onglets
+    tab1, tab2 = st.tabs(["📊 Analyse globale", "🪙 Par crypto"])
+    
+    # === ONGLET 1 : ANALYSE GLOBALE ===
+    with tab1:
+        st.subheader("Analyse sur tous les posts")
         
-        if not posts:
-            st.warning("Aucun post trouvé avec ces filtres.")
-            return
+        SOURCES = ["reddit", "twitter", "telegram", "stocktwits", "4chan", "bitcointalk", "github", "bluesky", "youtube"]
+        by_sm = stats.get("by_source_method") or []
+        METHODS = sorted(set(s["method"] for s in by_sm) | {"http", "selenium", "api"})
         
-        tok, mod, analyze_fn = get_model(model_choice)
-        results = []
-        progress = st.progress(0.0, text="Analyse en cours…")
+        with st.expander("⚙️ Filtres", expanded=True):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                source = st.selectbox("Source", ["Toutes"] + SOURCES, key="glob_source")
+            with c2:
+                method = st.selectbox("Méthode", ["Toutes"] + METHODS, key="glob_method")
+            with c3:
+                limit = st.slider("Nombre de posts", 50, 1000, 200, 50, key="glob_limit")
+            
+            model = st.radio("Modèle NLP", ["FinBERT", "CryptoBERT"], horizontal=True, key="glob_model")
         
-        for i, post in enumerate(posts):
-            text = clean_text((post.get("title") or post.get("text") or "").strip())
-            if not text or len(text) < 5:
-                continue
-            out = analyze_fn(text, tok, mod)
-            results.append({
-                "texte": text[:120] + ("…" if len(text) > 120 else ""),
-                "score": out["score"],
-                "label": out["label"],
-            })
-            progress.progress((i + 1) / len(posts), text=f"Analyse {i + 1}/{len(posts)}")
+        if st.button("🚀 Analyser", type="primary", key="glob_run"):
+            src = source if source != "Toutes" else None
+            mth = method if method != "Toutes" else None
+            posts = get_all_posts(source=src, method=mth, limit=limit)
+            
+            if not posts:
+                st.error("Aucun post trouvé.")
+            else:
+                tok, mod, analyze_fn = get_model(model)
+                results = []
+                bar = st.progress(0, text="Analyse...")
+                
+                for i, p in enumerate(posts):
+                    text = clean_text((p.get("title") or p.get("text") or "").strip())
+                    if text and len(text) >= 5:
+                        out = analyze_fn(text, tok, mod)
+                        results.append({
+                            "Texte": text[:100] + "…" if len(text) > 100 else text,
+                            "Score": out["score"],
+                            "Label": out["label"]
+                        })
+                    bar.progress((i + 1) / len(posts))
+                bar.empty()
+                
+                if results:
+                    df = pd.DataFrame(results)
+                    mean_score = df["Score"].mean()
+                    
+                    # Résultats
+                    st.success(f"✅ {len(results)} posts analysés")
+                    
+                    m1, m2, m3 = st.columns(3)
+                    with m1:
+                        color = "🟢" if mean_score > 0.1 else "🔴" if mean_score < -0.1 else "🟡"
+                        st.metric("Score moyen", f"{mean_score:+.3f}", delta=color)
+                    with m2:
+                        bullish = (df["Label"] == "Bullish").sum()
+                        st.metric("Bullish", f"{bullish} ({100*bullish/len(df):.0f}%)")
+                    with m3:
+                        bearish = (df["Label"] == "Bearish").sum()
+                        st.metric("Bearish", f"{bearish} ({100*bearish/len(df):.0f}%)")
+                    
+                    # Graphique
+                    fig = px.histogram(df, x="Score", color="Label",
+                                       color_discrete_map={"Bullish": "#22c55e", "Bearish": "#ef4444", "Neutral": "#6b7280"},
+                                       nbins=25)
+                    fig.update_layout(
+                        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                        font_color="#e0e7ff", height=300,
+                        xaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
+                        yaxis=dict(gridcolor="rgba(255,255,255,0.1)")
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Tableau
+                    st.dataframe(df, use_container_width=True, height=300)
+                else:
+                    st.warning("Aucun texte exploitable.")
+    
+    # === ONGLET 2 : PAR CRYPTO ===
+    with tab2:
+        st.subheader("Comparer le sentiment par crypto")
         
-        progress.empty()
+        cryptos = {
+            "Bitcoin": {"keywords": ["bitcoin", "btc"], "icon": "₿"},
+            "Ethereum": {"keywords": ["ethereum", "eth"], "icon": "Ξ"},
+            "Solana": {"keywords": ["solana", "sol"], "icon": "◎"},
+            "Cardano": {"keywords": ["cardano", "ada"], "icon": "₳"},
+        }
         
-        if not results:
-            st.warning("Aucun post avec assez de texte à analyser.")
-            return
-        
-        df = pd.DataFrame(results)
-        
-        st.success(f"**{len(results)}** posts analysés avec **{model_choice}**.")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            mean_score = df["score"].mean()
-            render_metric_card(f"Score moyen ({model_choice})", f"{mean_score:+.3f}")
-        with col2:
-            label_counts = df["label"].value_counts()
-            st.markdown("**Répartition des labels**")
-            for lbl, cnt in label_counts.items():
-                st.caption(f"{lbl}: {cnt} ({100 * cnt / len(df):.1f}%)")
-        
-        st.markdown("#### Détail des résultats")
-        st.dataframe(df, use_container_width=True, column_config={"texte": st.column_config.TextColumn("Texte", width="large")})
-        
-        st.markdown("#### Distribution des scores")
-        fig = px.histogram(
-            df, x="score", color="label",
-            color_discrete_map={"Bullish": "#4ade80", "Bearish": "#f87171", "Neutral": "#94a3b8"},
-            nbins=30
+        selected = st.multiselect(
+            "Cryptos à analyser",
+            list(cryptos.keys()),
+            default=["Bitcoin", "Ethereum"],
+            key="crypto_select"
         )
-        fig.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font_color="#e0e7ff",
-            xaxis=dict(gridcolor="rgba(99,102,241,0.15)", title="Score"),
-            yaxis=dict(gridcolor="rgba(99,102,241,0.15)", title="Nombre"),
-            height=350,
-            showlegend=True,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            limit_crypto = st.slider("Posts max", 100, 1000, 300, 50, key="crypto_limit")
+        with c2:
+            model_crypto = st.radio("Modèle", ["FinBERT", "CryptoBERT"], horizontal=True, key="crypto_model")
+        
+        if st.button("🚀 Comparer", type="primary", key="crypto_run"):
+            if not selected:
+                st.warning("Sélectionne au moins une crypto.")
+            else:
+                posts = get_all_posts(limit=limit_crypto)
+                if not posts:
+                    st.error("Aucun post en base.")
+                else:
+                    tok, mod, analyze_fn = get_model(model_crypto)
+                    results = []
+                    bar = st.progress(0, text="Analyse...")
+                    
+                    for i, name in enumerate(selected):
+                        kw = cryptos[name]["keywords"]
+                        subset = [p for p in posts if any(k in ((p.get("title") or "") + " " + (p.get("text") or "")).lower() for k in kw)]
+                        
+                        scores = []
+                        for p in subset:
+                            text = clean_text((p.get("title") or p.get("text") or "").strip())
+                            if text and len(text) >= 5:
+                                out = analyze_fn(text, tok, mod)
+                                scores.append(out["score"])
+                        
+                        avg = sum(scores) / len(scores) if scores else None
+                        results.append({
+                            "Crypto": f"{cryptos[name]['icon']} {name}",
+                            "Posts": len(scores),
+                            "Score": avg
+                        })
+                        bar.progress((i + 1) / len(selected))
+                    bar.empty()
+                    
+                    df = pd.DataFrame(results)
+                    
+                    st.success(f"✅ {len(selected)} cryptos analysées")
+                    
+                    # Graphique barres
+                    plot_df = df[df["Score"].notna()].copy()
+                    if not plot_df.empty:
+                        fig = px.bar(plot_df, x="Crypto", y="Score",
+                                     color="Score",
+                                     color_continuous_scale=["#ef4444", "#6b7280", "#22c55e"],
+                                     color_continuous_midpoint=0)
+                        fig.update_layout(
+                            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                            font_color="#e0e7ff", height=350,
+                            xaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
+                            yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="Score moyen"),
+                            showlegend=False
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Tableau
+                    st.dataframe(
+                        df.assign(Score=df["Score"].apply(lambda x: f"{x:+.3f}" if x else "—")),
+                        use_container_width=True,
+                        hide_index=True
+                    )
 
 
 # ============ PAGE SCRAPING ============
@@ -1722,17 +1531,18 @@ def page_scraping():
     </div>
     """, unsafe_allow_html=True)
     
-    # Sources avec icônes
+    # Sources avec icônes (max = max des limites par méthode pour chaque plateforme)
+    _max_for = lambda name: max(LIMITS[name].values()) if name in LIMITS else 500
     sources = {
-        "Reddit": {"icon": "🔴", "max": 1000, "desc": "Subreddits crypto"},
-        "Twitter": {"icon": "🐦", "max": 2000, "desc": "Recherche avancée"},
-        "YouTube": {"icon": "▶️", "max": 5000, "desc": "Commentaires vidéos"},
-        "Telegram": {"icon": "✈️", "max": 500, "desc": "Channels publics"},
-        "StockTwits": {"icon": "📈", "max": 1000, "desc": "Labels inclus (scroll amélioré)"},
-        "Bluesky": {"icon": "🦋", "max": 200, "desc": "Recherche AT Protocol"},
-        "Bitcointalk": {"icon": "💭", "max": 200, "desc": "Forum historique"},
-        "GitHub": {"icon": "💻", "max": 200, "desc": "Issues/Discussions"},
-        "4chan": {"icon": "💬", "max": 200, "desc": "/biz/ discussions"},
+        "Reddit": {"icon": "🔴", "max": _max_for("Reddit"), "desc": "Subreddits crypto"},
+        "Twitter": {"icon": "🐦", "max": _max_for("Twitter"), "desc": "Recherche avancée"},
+        "YouTube": {"icon": "▶️", "max": _max_for("YouTube"), "desc": "Commentaires vidéos"},
+        "Telegram": {"icon": "✈️", "max": _max_for("Telegram"), "desc": "Channels publics"},
+        "StockTwits": {"icon": "📈", "max": _max_for("StockTwits"), "desc": "Labels inclus (scroll amélioré)"},
+        "Bluesky": {"icon": "🦋", "max": _max_for("Bluesky"), "desc": "Recherche AT Protocol"},
+        "Bitcointalk": {"icon": "💭", "max": _max_for("Bitcointalk"), "desc": "Forum historique"},
+        "GitHub": {"icon": "💻", "max": _max_for("GitHub"), "desc": "Issues/Discussions"},
+        "4chan": {"icon": "💬", "max": _max_for("4chan"), "desc": "HTTP /biz/ (pas Selenium)"},
     }
     
     # Sélection de la source - 3 plateformes par ligne
@@ -1848,6 +1658,8 @@ def page_scraping():
         with c4:
             end_date = st.date_input("Date de fin", value=None, key="scr_reddit_end")
         
+        st.info("**Méthode :** API HTTP. Récupération des posts par subreddit avec filtres de date optionnels.")
+        
         if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
             config = CRYPTO_LIST[crypto]
             
@@ -1893,6 +1705,8 @@ def page_scraping():
         with c2:
             end_date = st.date_input("Date de fin (optionnel)", value=None, key="scr_end")
         
+        st.info("**Méthode :** Selenium ou Nitter. Tri par popularité ou récents, filtre par nombre de likes.")
+        
         if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
             config = CRYPTO_LIST[crypto]
             with st.spinner("Scraping Twitter en cours..."):
@@ -1923,7 +1737,8 @@ def page_scraping():
             
             c1, c2 = st.columns(2)
             with c1:
-                limit = st.slider("Nombre de commentaires", 10, 5000, 100, key="scr_limit")
+                yt_max = max(LIMITS["YouTube"].values())
+                limit = st.slider("Nombre de commentaires", 10, yt_max, min(100, yt_max), key="scr_limit")
             with c2:
                 order = st.selectbox("Tri", ["relevance", "time"], format_func=lambda x: "Populaires" if x == "relevance" else "Récents", key="scr_order")
             
@@ -1931,6 +1746,8 @@ def page_scraping():
                 st.success("Clé API YouTube configurée")
             else:
                 st.warning("Clé API manquante - ajoutez YOUTUBE_API_KEY dans .env")
+            
+            st.info("**Méthode :** API YouTube. Commentaires de la vidéo, tri par pertinence ou date.")
             
             if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
                 if not url:
@@ -1950,6 +1767,8 @@ def page_scraping():
             limit = st.slider("Nombre de messages", 10, 500, 100, key="scr_limit")
         
         st.caption(f"Description: {TELEGRAM_CHANNELS[channel]}")
+        
+        st.info("**Méthode :** Canaux publics (API). Récupération simple (< 30 msg) ou paginée pour plus de messages.")
         
         if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
             with st.spinner("Scraping Telegram en cours..."):
@@ -1986,7 +1805,7 @@ def page_scraping():
         with c4:
             end_date = st.date_input("Date de fin", value=None, key="scr_stocktwits_end")
         
-        st.info("Les labels Bullish/Bearish sont inclus automatiquement")
+        st.info("**Méthode :** Selenium (scroll). Les labels Bullish/Bearish sont inclus automatiquement.")
         
         if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
             config = CRYPTO_LIST[crypto]
@@ -2025,12 +1844,7 @@ def page_scraping():
         with c2:
             limit = st.slider("Nombre de posts", 10, 200, 50, key="scr_limit")
         
-        st.markdown("""
-        <div class="info-box">
-            <strong>4chan /biz/</strong> — Discussions crypto anonymes<br>
-            <small>Scraping rapide via API, pas de login requis. Discussions très actives sur crypto.</small>
-        </div>
-        """, unsafe_allow_html=True)
+        st.info("**Méthode :** HTTP /biz/. Discussions anonymes, pas de login requis.")
         
         if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
             config = CRYPTO_LIST[crypto]
@@ -2050,12 +1864,7 @@ def page_scraping():
         with c2:
             limit = st.slider("Nombre de posts", 10, 200, 50, key="scr_limit")
         
-        st.markdown("""
-        <div class="info-box">
-            <strong>Bitcointalk</strong> — Forum crypto historique<br>
-            <small>Scraping via HTTP, pas de login requis. Discussions longues et détaillées sur crypto.</small>
-        </div>
-        """, unsafe_allow_html=True)
+        st.info("**Méthode :** HTTP. Forum crypto historique, pas de login requis.")
         
         if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
             config = CRYPTO_LIST[crypto]
@@ -2075,12 +1884,7 @@ def page_scraping():
         with c2:
             limit = st.slider("Nombre de posts", 10, 200, 50, key="scr_limit")
         
-        st.markdown("""
-        <div class="info-box">
-            <strong>GitHub</strong> — Issues/Discussions projets crypto<br>
-            <small>API officielle GitHub (gratuite). Discussions techniques sur projets Bitcoin, Ethereum, Solana, etc.</small>
-        </div>
-        """, unsafe_allow_html=True)
+        st.info("**Méthode :** API GitHub (gratuite). Issues et discussions de projets crypto.")
         
         if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
             config = CRYPTO_LIST[crypto]
@@ -2100,12 +1904,7 @@ def page_scraping():
         with c2:
             limit = st.slider("Nombre de posts", 10, 200, 50, key="scr_limit")
         
-        st.markdown("""
-        <div class="info-box">
-            <strong>Bluesky</strong> — Recherche AT Protocol<br>
-            <small>Configure BLUESKY_USERNAME et BLUESKY_APP_PASSWORD dans .env pour utiliser ton compte.</small>
-        </div>
-        """, unsafe_allow_html=True)
+        st.info("**Méthode :** AT Protocol (API). Configure BLUESKY_USERNAME et BLUESKY_APP_PASSWORD dans .env pour utiliser ton compte.")
         
         if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
             config = CRYPTO_LIST[crypto]
@@ -2222,9 +2021,11 @@ def main():
         # Dashboard masqué (page conservée dans le code)
         if st.session_state.get("nav_radio") == "Dashboard":
             st.session_state.nav_radio = "Accueil"
+        if st.session_state.get("nav_radio") == "Méthodologie":
+            st.session_state.nav_radio = "Documentation"
         page = st.radio(
             "Navigation",
-            ["Accueil", "Scraping", "Comparaison", "Multi-crypto", "Économétrie", "Données", "Analyses des résultats", "Méthodologie"],
+            ["Accueil", "Scraping", "Données", "Analyses des résultats", "Documentation"],
             key="nav_radio",
             label_visibility="collapsed"
         )
@@ -2235,18 +2036,12 @@ def main():
         page_dashboard()
     elif "Scraping" in page:
         page_scraping()
-    elif "Comparaison" in page:
-        page_compare()
-    elif "Multi-crypto" in page:
-        page_multi()
-    elif "Économétrie" in page:
-        page_econometrie()
     elif "Données" in page:
         page_stored_data()
     elif "Analyses des résultats" in page:
         page_analyses_resultats()
-    elif "Méthodologie" in page:
-        page_methodo()
+    elif "Documentation" in page:
+        page_documentation()
 
 
 if __name__ == "__main__":
