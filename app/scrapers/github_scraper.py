@@ -42,88 +42,86 @@ def get_limits():
 
 
 def scrape_github_discussions(query: str = "bitcoin", limit: int = 50) -> List[Dict]:
-    """
-    Scrape GitHub Issues (les discussions ne sont pas toujours activées)
-    Utilise Issues par défaut, plus fiable
-    
-    Args:
-        query: Mot-clé de recherche (ex: "bitcoin", "ethereum")
-        limit: Nombre de discussions souhaitées
-    
-    Returns:
-        Liste de discussions/issues avec texte et métriques
-    """
-    # Utiliser Issues par défaut (plus fiable)
-    return scrape_github_issues(query, limit)
+    """Scrape GitHub. En cas d'erreur, retourne [] sans lever."""
+    try:
+        return scrape_github_issues(query, limit)
+    except Exception as e:
+        print(f"GitHub scrape_github_discussions: {e}")
+        return []
 
 
 def scrape_github_issues(query: str = "bitcoin", limit: int = 50) -> List[Dict]:
-    """
-    Scrape GitHub Issues (alternative aux discussions)
-    Certains repos utilisent Issues au lieu de Discussions
-    """
+    """Scrape GitHub Issues. En cas d'erreur, retourne [] sans lever."""
+    try:
+        return _scrape_github_issues_impl(query, limit)
+    except Exception as e:
+        print(f"GitHub scrape_github_issues: {e}")
+        return []
+
+
+def _scrape_github_issues_impl(query: str = "bitcoin", limit: int = 50) -> List[Dict]:
     posts = []
     seen_ids = set()
-    
+
     github_token = os.environ.get("GITHUB_TOKEN")
-    
+
     headers = {
         "Accept": "application/vnd.github+json",
         "User-Agent": "Crypto-Sentiment-Analysis/1.0"
     }
-    
+
     if github_token:
         headers["Authorization"] = f"token {github_token}"
-    
+
     try:
         query_lower = query.lower()
         repos = CRYPTO_REPOS.get(query_lower, CRYPTO_REPOS.get("crypto", []))
-        
+
         print(f"GitHub: Scraping issues pour '{query}'...")
-        
+
         for repo_info in repos:
             if len(posts) >= limit:
                 break
-            
+
             owner = repo_info["owner"]
             repo = repo_info["repo"]
-            
+
             try:
                 issues_url = f"https://api.github.com/repos/{owner}/{repo}/issues"
-                
+
                 response = requests.get(
                     issues_url,
                     headers=headers,
                     params={"per_page": 100, "state": "all"},
                     timeout=10
                 )
-                
+
                 if response.status_code == 403:
                     break
-                
+
                 response.raise_for_status()
                 issues = response.json()
-                
+
                 for issue in issues:
                     if len(posts) >= limit:
                         break
-                    
+
                     issue_id = str(issue.get("number", ""))
                     if issue_id in seen_ids:
                         continue
                     seen_ids.add(issue_id)
-                    
+
                     title = issue.get("title", "")
                     body = issue.get("body", "")
-                    
+
                     if not title:
                         continue
-                    
+
                     text_lower = (title + " " + body).lower()
                     keywords = [query_lower, "crypto", "blockchain"]
                     if not any(keyword in text_lower for keyword in keywords):
                         continue
-                    
+
                     comments = issue.get("comments", 0)
                     reactions = issue.get("reactions", {})
                     total_reactions = sum([
@@ -136,12 +134,12 @@ def scrape_github_issues(query: str = "bitcoin", limit: int = 50) -> List[Dict]:
                         reactions.get("rocket", 0),
                         reactions.get("eyes", 0),
                     ])
-                    
+
                     user = issue.get("user", {})
                     username = user.get("login", "Anonymous")
                     created_at = issue.get("created_at", "")
                     html_url = issue.get("html_url", "")
-                    
+
                     posts.append({
                         "id": issue_id,
                         "title": title[:500],
@@ -157,15 +155,15 @@ def scrape_github_issues(query: str = "bitcoin", limit: int = 50) -> List[Dict]:
                         "repo": f"{owner}/{repo}",
                         "human_label": None
                     })
-                
+
                 time.sleep(0.5)
-                
+
             except Exception as e:
                 continue
-        
-        print(f"✅ GitHub: {len(posts)} issues récupérées")
-        
+
+        print(f"GitHub: {len(posts)} issues recuperees")
+
     except Exception as e:
-        print(f"❌ Erreur GitHub Issues: {e}")
+        print(f"Erreur GitHub Issues: {e}")
     
     return posts[:limit]

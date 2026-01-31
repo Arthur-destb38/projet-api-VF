@@ -126,11 +126,15 @@ def scrape_bluesky_with_login(query: str, limit: int, username: str, password: s
 
 
 def scrape_bluesky(query: str = "bitcoin", limit: int = 50) -> List[Dict]:
-    """
-    Recherche de posts Bluesky par mot-clé (crypto).
-    Si BLUESKY_USERNAME et BLUESKY_APP_PASSWORD sont définis dans .env, utilise le login (recommandé).
-    Sinon tente l'API publique (souvent 403).
-    """
+    """Scrape Bluesky. En cas d'erreur, retourne [] sans lever."""
+    try:
+        return _scrape_bluesky_impl(query, limit)
+    except Exception as e:
+        print(f"Bluesky scrape_bluesky: {e}")
+        return []
+
+
+def _scrape_bluesky_impl(query: str = "bitcoin", limit: int = 50) -> List[Dict]:
     username = os.environ.get("BLUESKY_USERNAME", "").strip()
     password = os.environ.get("BLUESKY_APP_PASSWORD") or os.environ.get("BLUESKY_PASSWORD", "").strip()
 
@@ -190,5 +194,4 @@ def scrape_bluesky(query: str = "bitcoin", limit: int = 50) -> List[Dict]:
         print(f"Bluesky erreur réseau: {e}")
     except Exception as e:
         print(f"Bluesky erreur: {e}")
-
     return posts[:limit]

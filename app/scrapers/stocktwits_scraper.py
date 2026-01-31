@@ -96,146 +96,113 @@ def filter_posts_by_date(posts: list, start_date: Optional[str] = None, end_date
 
 
 def scrape_stocktwits(symbol: str, limit: int = 100, method: str = "selenium", enhanced: bool = False, start_date: Optional[str] = None, end_date: Optional[str] = None) -> list:
-    """
-    Scrape StockTwits avec Selenium (bypass Cloudflare)
-    Note: HTTP ne fonctionne pas (Cloudflare), seul Selenium est disponible
-
-    Args:
-        symbol: Symbole crypto (ex: BTC.X, ETH.X)
-        limit: Nombre de posts souhaites
-        method: Ignore (toujours selenium)
-
-    Returns:
-        Liste de posts avec human_label (Bullish/Bearish/None)
-    """
-    if not SELENIUM_OK:
-        print("Selenium non installe")
-        return []
-
-    posts = []
-    seen_ids = set()
-    # Augmenter la limite si on filtre par date
-    fetch_limit = limit * 2 if (start_date or end_date) else limit
-    fetch_limit = min(fetch_limit, LIMITS["selenium"])
-
-    # Config Chrome avec chemin binaire SYSTÈME uniquement
-    chrome_binary = _find_chrome_binary()
-    if not chrome_binary:
-        print("Erreur Chrome StockTwits: aucun Chrome système trouvé. Installez Google Chrome (ou Chrome 2) dans Applications.")
-        return []
-    options = Options()
-    options.binary_location = chrome_binary
-    # Profil temporaire propre (évite conflit avec Chrome ouvert)
-    import tempfile
-    temp_profile = tempfile.mkdtemp(prefix="selenium_stocktwits_")
-    options.add_argument(f"--user-data-dir={temp_profile}")
-    # Headless + options anti-plantage
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--disable-software-rasterizer")
-    options.add_argument("--disable-extensions")
-    options.add_argument("--disable-background-networking")
-    options.add_argument("--disable-default-apps")
-    options.add_argument("--disable-sync")
-    options.add_argument("--no-first-run")
-    options.add_argument("--disable-renderer-backgrounding")
-    options.add_argument("--disable-features=VizDisplayCompositor")
-    options.add_argument("--window-size=1920,1080")
-    options.add_argument("--remote-debugging-port=0")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument("--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option("useAutomationExtension", False)
-    options.add_experimental_option("prefs", {
-        "profile.default_content_setting_values.notifications": 2,
-        "credentials_enable_service": False,
-        "profile.password_manager_enabled": False,
-    })
-
+    """Scrape StockTwits. En cas d'erreur, retourne [] sans lever."""
     try:
-        driver = webdriver.Chrome(options=options)
-        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-            "source": "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
+        if not SELENIUM_OK:
+            print("Selenium non installe")
+            return []
+
+        posts = []
+        seen_ids = set()
+        fetch_limit = limit * 2 if (start_date or end_date) else limit
+        fetch_limit = min(fetch_limit, LIMITS["selenium"])
+
+        chrome_binary = _find_chrome_binary()
+        if not chrome_binary:
+            print("Erreur Chrome StockTwits: aucun Chrome système trouvé. Installez Google Chrome (ou Chrome 2) dans Applications.")
+            return []
+        options = Options()
+        options.binary_location = chrome_binary
+        import tempfile
+        temp_profile = tempfile.mkdtemp(prefix="selenium_stocktwits_")
+        options.add_argument(f"--user-data-dir={temp_profile}")
+        options.add_argument("--headless=new")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--disable-software-rasterizer")
+        options.add_argument("--disable-extensions")
+        options.add_argument("--disable-background-networking")
+        options.add_argument("--disable-default-apps")
+        options.add_argument("--disable-sync")
+        options.add_argument("--no-first-run")
+        options.add_argument("--disable-renderer-backgrounding")
+        options.add_argument("--disable-features=VizDisplayCompositor")
+        options.add_argument("--window-size=1920,1080")
+        options.add_argument("--remote-debugging-port=0")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_argument("--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_experimental_option("prefs", {
+            "profile.default_content_setting_values.notifications": 2,
+            "credentials_enable_service": False,
+            "profile.password_manager_enabled": False,
         })
-        driver.execute_cdp_cmd("Network.setUserAgentOverride", {
-            "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        })
-    except Exception as e:
-        print(f"Erreur Chrome StockTwits: {e}")
-        return []
 
-    try:
-        url = f"https://stocktwits.com/symbol/{symbol}"
-        print(f"Loading {url}...")
-        driver.get(url)
-
-        # Attendre que Cloudflare passe (5-8 sec)
-        time.sleep(random.uniform(5, 8))
-
-        # Essayer d'abord d'extraire le JSON embarque (methode la plus fiable)
-        posts = extract_json_data(driver, fetch_limit)
-        if posts:
-            seen_ids.update(p.get('id') for p in posts if p.get('id'))
-            print(f"Extracted {len(posts)} posts from JSON")
-
-        if posts and len(posts) >= fetch_limit:
-            # Filtrer par date si nécessaire
-            posts = filter_posts_by_date(posts, start_date, end_date)
-            print(f"Extracted {len(posts)} posts from JSON (after date filter)")
-            driver.quit()
-            return posts[:limit]
-
-        # Fallback: parser le HTML si on n'a pas assez de posts
-        if len(posts) < fetch_limit:
-            print(f"JSON gave {len(posts)} posts, scraping HTML for more...")
-
-        # Attendre le contenu
         try:
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.TAG_NAME, "article"))
-            )
-        except:
-            pass
+            driver = webdriver.Chrome(options=options)
+            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+                "source": "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
+            })
+            driver.execute_cdp_cmd("Network.setUserAgentOverride", {
+                "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            })
+        except Exception as e:
+            print(f"Erreur Chrome StockTwits: {e}")
+            return []
 
-        time.sleep(2)
-
-        # Scroll amélioré pour charger plus de posts
-        if len(posts) < fetch_limit:
-            # Calculer combien de posts on a encore besoin
-            remaining = fetch_limit - len(posts)
-            additional_posts = enhanced_scroll_and_parse(driver, [], seen_ids, remaining, enhanced)
-            posts.extend(additional_posts)
-            
-            # Dédupliquer par ID
-            unique_posts = []
-            seen = set()
-            for p in posts:
-                p_id = p.get('id')
-                if p_id and p_id not in seen:
-                    seen.add(p_id)
-                    unique_posts.append(p)
-                elif not p_id:
-                    # Si pas d'ID, utiliser le hash du texte
-                    text_hash = hash(p.get('title', '')[:50])
-                    if text_hash not in seen:
-                        seen.add(text_hash)
+        try:
+            url = f"https://stocktwits.com/symbol/{symbol}"
+            print(f"Loading {url}...")
+            driver.get(url)
+            time.sleep(random.uniform(5, 8))
+            posts = extract_json_data(driver, fetch_limit)
+            if posts:
+                seen_ids.update(p.get('id') for p in posts if p.get('id'))
+                print(f"Extracted {len(posts)} posts from JSON")
+            if posts and len(posts) >= fetch_limit:
+                posts = filter_posts_by_date(posts, start_date, end_date)
+                driver.quit()
+                return posts[:limit]
+            if len(posts) < fetch_limit:
+                print(f"JSON gave {len(posts)} posts, scraping HTML for more...")
+            try:
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "article"))
+                )
+            except Exception:
+                pass
+            time.sleep(2)
+            if len(posts) < fetch_limit:
+                remaining = fetch_limit - len(posts)
+                additional_posts = enhanced_scroll_and_parse(driver, [], seen_ids, remaining, enhanced)
+                posts.extend(additional_posts)
+                unique_posts = []
+                seen = set()
+                for p in posts:
+                    p_id = p.get('id')
+                    if p_id and p_id not in seen:
+                        seen.add(p_id)
                         unique_posts.append(p)
-            posts = unique_posts
+                    elif not p_id:
+                        text_hash = hash(p.get('title', '')[:50])
+                        if text_hash not in seen:
+                            seen.add(text_hash)
+                            unique_posts.append(p)
+                posts = unique_posts
+            posts = filter_posts_by_date(posts, start_date, end_date)
+            print(f"Scraped {len(posts)} posts from StockTwits HTML")
+        except Exception as e:
+            print(f"Erreur StockTwits Selenium: {e}")
+        finally:
+            driver.quit()
 
-        # Filtrer par date si nécessaire
-        posts = filter_posts_by_date(posts, start_date, end_date)
-
-        print(f"Scraped {len(posts)} posts from StockTwits HTML")
-
+        posts = posts[:limit]
+        return posts
     except Exception as e:
-        print(f"Erreur StockTwits Selenium: {e}")
-    finally:
-        driver.quit()
-
-    posts = posts[:limit]
-    return posts
+        print(f"StockTwits scrape_stocktwits: {e}")
+        return []
 
 
 def extract_json_data(driver, limit: int) -> list:

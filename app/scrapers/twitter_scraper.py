@@ -365,73 +365,49 @@ def scrape_twitter(
     start_date: str = None,
     end_date: str = None,
     sort_mode: str = "top",  # "top" (populaires) ou "live" (recents)
-    force_login: bool = False,  # True = tenter le login même si TWITTER_NO_LOGIN est set
+    force_login: bool = False,
 ) -> list:
-    """
-    Scrape Twitter/X pour les tweets crypto
-    
-    2 modes:
-    1. AVEC LOGIN (methode Jose): Utilise la recherche avancee, jusqu'a 2000 tweets
-    2. SANS LOGIN: Scrape les profils publics, max 100 tweets
-    
-    Args:
-        query: Terme de recherche (ex: "Bitcoin", "$BTC", "crypto")
-        limit: Nombre de tweets souhaites
-        method: "selenium" (avec ou sans login)
-        username: Username Twitter (optionnel, pour mode login)
-        password: Password Twitter (optionnel, pour mode login)
-        min_likes: Filtrer tweets avec minimum X likes
-        min_replies: Filtrer tweets avec minimum X replies  
-        start_date: Date debut (YYYY-MM-DD)
-        end_date: Date fin (YYYY-MM-DD)
-        sort_mode: "top" (populaires) ou "live" (recents)
-    
-    Returns:
-        Liste de tweets
-    """
-    if not SELENIUM_OK:
-        print("Selenium non installe")
-        return []
-    
-    # Recuperer credentials depuis env si pas fournis
-    if not username:
-        username = os.environ.get("TWITTER_USERNAME")
-    if not password:
-        password = os.environ.get("TWITTER_PASSWORD")
-    
-    # Forcer le mode sans login sauf si force_login=True (pour tester le login depuis l'app)
-    if not force_login and os.environ.get("TWITTER_NO_LOGIN", "").strip().lower() in ("1", "true", "yes", "oui"):
-        print("Twitter: Mode sans login (profils publics)")
-        return scrape_twitter_no_login(query, limit)
+    """Scrape Twitter/X. En cas d'erreur, retourne [] sans lever."""
+    try:
+        if not SELENIUM_OK:
+            print("Selenium non installe")
+            return []
 
-    # Verifier si on a des cookies sauvegardes
-    cookies_exist = COOKIES_FILE.exists()
+        if not username:
+            username = os.environ.get("TWITTER_USERNAME")
+        if not password:
+            password = os.environ.get("TWITTER_PASSWORD")
 
-    # Si on a des cookies OU des credentials, utiliser le mode login (Jose)
-    if cookies_exist or (username and password):
-        print(f"Twitter: Mode login (cookies={cookies_exist}, creds={bool(username and password)})")
-        try:
-            result = scrape_twitter_with_login(
-                query=query,
-                limit=min(limit, LIMITS["selenium"]),
-                username=username or "cookie_user",
-                password=password or "cookie_pass",
-                min_likes=min_likes,
-                min_replies=min_replies,
-                start_date=start_date,
-                end_date=end_date,
-                sort_mode=sort_mode
-            )
-            if result:
-                return result
-            else:
+        if not force_login and os.environ.get("TWITTER_NO_LOGIN", "").strip().lower() in ("1", "true", "yes", "oui"):
+            print("Twitter: Mode sans login (profils publics)")
+            return scrape_twitter_no_login(query, limit)
+
+        cookies_exist = COOKIES_FILE.exists()
+        if cookies_exist or (username and password):
+            print(f"Twitter: Mode login (cookies={cookies_exist}, creds={bool(username and password)})")
+            try:
+                result = scrape_twitter_with_login(
+                    query=query,
+                    limit=min(limit, LIMITS["selenium"]),
+                    username=username or "cookie_user",
+                    password=password or "cookie_pass",
+                    min_likes=min_likes,
+                    min_replies=min_replies,
+                    start_date=start_date,
+                    end_date=end_date,
+                    sort_mode=sort_mode
+                )
+                if result:
+                    return result
                 print("Twitter: Mode login n'a retourné aucun résultat, passage en fallback")
-        except Exception as e:
-            print(f"Twitter: Erreur mode login: {e}, passage en fallback")
-    
-    # Sinon, mode sans login: Nitter (priorité) puis profils publics
-    print("Twitter: Mode sans login (pas de cookies/credentials valides)")
-    return scrape_twitter_no_login(query, limit)
+            except Exception as e:
+                print(f"Twitter: Erreur mode login: {e}, passage en fallback")
+
+        print("Twitter: Mode sans login (pas de cookies/credentials valides)")
+        return scrape_twitter_no_login(query, limit)
+    except Exception as e:
+        print(f"Twitter scrape_twitter: {e}")
+        return []
 
 
 def scrape_twitter_with_login(

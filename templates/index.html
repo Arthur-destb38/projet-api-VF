@@ -108,7 +108,7 @@
 
         .option-btn {
             flex: 1;
-            min-width: 90px;
+            min-width: 100px;
             padding: 12px 8px;
             border: 2px solid #ddd;
             border-radius: 6px;
@@ -131,11 +131,11 @@
         .option-btn .title {
             font-weight: bold;
             display: block;
-            font-size: 0.85rem;
+            font-size: 0.9rem;
         }
 
         .option-btn .desc {
-            font-size: 0.7rem;
+            font-size: 0.75rem;
             color: #666;
             margin-top: 2px;
         }
@@ -371,14 +371,6 @@
                     <span class="title">YouTube</span>
                     <span class="desc">API - 500 max</span>
                 </div>
-                <div class="option-btn" data-value="telegram" data-method="http" data-max="500">
-                    <span class="title">Telegram</span>
-                    <span class="desc">HTTP - 500 max</span>
-                </div>
-                <div class="option-btn" data-value="bluesky" data-method="api" data-max="200">
-                    <span class="title">Bluesky</span>
-                    <span class="desc">API - 200 max</span>
-                </div>
             </div>
 
             <div class="info-box" id="platform-info">
@@ -391,8 +383,6 @@
                 <option value="ethereum">Ethereum (ETH)</option>
                 <option value="solana">Solana (SOL)</option>
                 <option value="cardano">Cardano (ADA)</option>
-                <option value="dogecoin">Dogecoin (DOGE)</option>
-                <option value="ripple">Ripple (XRP)</option>
             </select>
 
             <label>Nombre de posts</label>
@@ -495,18 +485,15 @@
 </footer>
 
 <script>
-    let selectedSource = 'reddit';
-    let selectedModel = 'finbert';
-    let currentMethod = 'http';
-    let currentMax = 1000;
+    var selectedSource = 'reddit';
+    var selectedModel = 'finbert';
+    var currentMethod = 'http';
+    var currentMax = 1000;
 
     function updatePlatformInfo() {
         var infoBox = document.getElementById('platform-info');
         var limitInput = document.getElementById('limit');
-        var names = {
-            'reddit': 'Reddit', 'stocktwits': 'StockTwits', 'twitter': 'Twitter',
-            'youtube': 'YouTube', 'telegram': 'Telegram', 'bluesky': 'Bluesky'
-        };
+        var names = {'reddit': 'Reddit', 'stocktwits': 'StockTwits', 'twitter': 'Twitter', 'youtube': 'YouTube'};
         infoBox.innerHTML = '<strong>' + names[selectedSource] + ':</strong> Methode ' + currentMethod.toUpperCase() + ', max ' + currentMax + ' posts';
         limitInput.max = currentMax;
         if (parseInt(limitInput.value) > currentMax) limitInput.value = currentMax;

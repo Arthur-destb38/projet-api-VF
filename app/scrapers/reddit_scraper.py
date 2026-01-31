@@ -253,20 +253,14 @@ def scrape_reddit_selenium(subreddit: str, limit: int = 100, start_date: Optiona
 
 
 def scrape_reddit(subreddit: str, limit: int = 100, method: str = "http", start_date: Optional[str] = None, end_date: Optional[str] = None) -> list:
-    """
-    Scrape Reddit avec la methode choisie
-    
-    Args:
-        subreddit: Nom du subreddit
-        limit: Nombre de posts
-        method: "http" (rapide, max 1000) ou "selenium" (lent, max 200)
-        start_date: Date de début (format: "YYYY-MM-DD") - optionnel
-        end_date: Date de fin (format: "YYYY-MM-DD") - optionnel
-    """
-    if method == "selenium":
-        return scrape_reddit_selenium(subreddit, limit, start_date, end_date)
-    else:
+    """Scrape Reddit. En cas d'erreur, retourne [] sans lever."""
+    try:
+        if method == "selenium":
+            return scrape_reddit_selenium(subreddit, limit, start_date, end_date)
         return scrape_reddit_http(subreddit, limit, start_date, end_date)
+    except Exception as e:
+        print(f"Reddit scrape_reddit: {e}")
+        return []
 
 
 def get_limits():

@@ -1,7 +1,7 @@
 """
 TikTok Scraper - Selenium avec comportement humain
 Scrape les hashtags crypto (expérimental)
-⚠️ TikTok a une protection anti-bot très agressive
+TikTok a une protection anti-bot tres agressive
 """
 
 import time
@@ -59,15 +59,15 @@ def human_scroll(driver, distance=None):
     """Scroll avec mouvement humain (lent et progressif)"""
     if distance is None:
         distance = random.randint(200, 500)
-    
+
     # Scroll très progressif
     steps = random.randint(5, 10)
     step_size = distance // steps
-    
+
     for _ in range(steps):
         driver.execute_script(f"window.scrollBy(0, {step_size + random.randint(-10, 10)});")
         time.sleep(random.uniform(0.1, 0.3))
-    
+
     human_delay(0.5, 1.5)
 
 
@@ -88,20 +88,20 @@ def random_mouse_movement(driver):
 
 def setup_driver(headless: bool = False):
     """Configure Chrome avec undetected-chromedriver pour bypass anti-bot"""
-    
+
     if UC_OK:
         # Utiliser undetected-chromedriver (meilleur pour TikTok)
         try:
             options = uc.ChromeOptions()
-            
+
             if headless:
                 options.add_argument("--headless=new")
-            
+
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--window-size=1920,1080")
             options.add_argument("--disable-notifications")
-            
+
             # Créer le driver sans spécifier de binary_location
             driver = uc.Chrome(
                 options=options,
@@ -119,24 +119,24 @@ def setup_driver(headless: bool = False):
         # Fallback vers selenium standard
         from selenium import webdriver
         from selenium.webdriver.chrome.options import Options
-        
+
         options = Options()
-        
+
         if headless:
             options.add_argument("--headless=new")
-        
+
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
         options.add_argument("--window-size=1920,1080")
         options.add_argument("--disable-blink-features=AutomationControlled")
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        
+
         user_agents = [
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
         ]
         options.add_argument(f"--user-agent={random.choice(user_agents)}")
-        
+
         try:
             driver = webdriver.Chrome(options=options)
             print("TikTok: Utilisation de selenium standard (moins efficace)")
@@ -147,17 +147,15 @@ def setup_driver(headless: bool = False):
 
 
 def scrape_tiktok(hashtag: str, limit: int = 30, method: str = "selenium") -> list:
-    """
-    Scrape TikTok pour les vidéos d'un hashtag crypto
-    
-    Args:
-        hashtag: Hashtag à scraper (ex: "bitcoin", "crypto", "btc")
-        limit: Nombre de vidéos souhaités (max 50)
-        method: Ignoré (toujours selenium)
-    
-    Returns:
-        Liste de posts avec descriptions et métriques
-    """
+    """Scrape TikTok. En cas d'erreur, retourne [] sans lever."""
+    try:
+        return _scrape_tiktok_impl(hashtag, limit, method)
+    except Exception as e:
+        print(f"TikTok scrape_tiktok: {e}")
+        return []
+
+
+def _scrape_tiktok_impl(hashtag: str, limit: int = 30, method: str = "selenium") -> list:
     if not SELENIUM_OK:
         print("Selenium non installé")
         return []

@@ -455,95 +455,54 @@ def scrape_youtube(
     order: str = "relevance"  # relevance ou time
 ) -> List[Dict]:
     """
-    Fonction principale pour scraper YouTube
-    
-    Args:
-        query: Terme de recherche
-        limit: Nombre de commentaires
-        method: "api", "selenium", ou "auto"
-        api_key: Cle API YouTube (optionnel)
-        start_date: Date debut (YYYY-MM-DD)
-        end_date: Date fin (YYYY-MM-DD)
-        video_url: URL d'une video specifique (optionnel)
-        order: Tri des commentaires (relevance/time)
-    
-    Returns:
-        Liste de commentaires
+    Fonction principale pour scraper YouTube. En cas d'erreur, retourne [] sans lever.
     """
     import os
-    
-    # Si URL video specifique fournie, scraper directement cette video
-    if video_url:
-        return scrape_single_video(video_url, limit, api_key, order)
-    
-    # Convertir dates au format ISO si fournies
-    published_after = None
-    published_before = None
-    
-    if start_date:
-        published_after = f"{start_date}T00:00:00Z"
-    if end_date:
-        published_before = f"{end_date}T23:59:59Z"
-    
-    # Choisir la methode
-    if method == "auto":
-        if api_key or os.environ.get("YOUTUBE_API_KEY"):
-            method = "api"
-        else:
-            method = "selenium"
-    
-    if method == "api":
-        return scrape_youtube_api(
-            query, 
-            min(limit, LIMITS["api"]),
-            api_key,
-            published_after,
-            published_before
-        )
-    else:
+    try:
+        if video_url:
+            return scrape_single_video(video_url, limit, api_key, order)
+
+        published_after = f"{start_date}T00:00:00Z" if start_date else None
+        published_before = f"{end_date}T23:59:59Z" if end_date else None
+
+        if method == "auto":
+            method = "api" if (api_key or os.environ.get("YOUTUBE_API_KEY")) else "selenium"
+
+        if method == "api":
+            return scrape_youtube_api(
+                query, min(limit, LIMITS["api"]), api_key, published_after, published_before
+            )
         return scrape_youtube_selenium(query, min(limit, LIMITS["selenium"]))
+    except Exception as e:
+        print(f"YouTube scrape_youtube: {e}")
+        return []
 
 
 def scrape_single_video(video_url: str, limit: int = 100, api_key: str = None, order: str = "relevance") -> List[Dict]:
-    """
-    Scrape les commentaires d'une video YouTube specifique
-    
-    Args:
-        video_url: URL de la video (ex: https://youtube.com/watch?v=xxxxx)
-        limit: Nombre max de commentaires
-        api_key: Cle API YouTube
-        order: Tri (relevance ou time)
-    """
+    """Scrape les commentaires d'une video YouTube. En cas d'erreur, retourne [] sans lever."""
     import os
     import re
-    
-    # Extraire video_id de l'URL
+
     video_id = None
-    patterns = [
+    for pattern in [
         r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([a-zA-Z0-9_-]{11})',
         r'v=([a-zA-Z0-9_-]{11})',
-    ]
-    
-    for pattern in patterns:
+    ]:
         match = re.search(pattern, video_url)
         if match:
             video_id = match.group(1)
             break
-    
     if not video_id:
-        print(f"YouTube: Impossible d'extraire video_id de {video_url}")
+        print(f"YouTube: URL invalide {video_url[:50]}...")
         return []
-    
-    print(f"YouTube: Scraping video {video_id}...")
-    
-    # Utiliser API si disponible
-    if not api_key:
-        api_key = os.environ.get("YOUTUBE_API_KEY")
-    
-    if api_key and YOUTUBE_API_OK:
-        try:
+
+    try:
+        if not api_key:
+            api_key = os.environ.get("YOUTUBE_API_KEY")
+
+        if api_key and YOUTUBE_API_OK:
             youtube = build('youtube', 'v3', developerKey=api_key)
-            
+
             # Info video
             video_info = youtube.videos().list(part='snippet,statistics', id=video_id).execute()
             video_title = ""
@@ -552,11 +511,11 @@ def scrape_single_video(video_url: str, limit: int = 100, api_key: str = None, o
                 video_title = v['snippet'].get('title', '')
                 print(f"  Titre: {video_title[:50]}...")
                 print(f"  Commentaires: {v['statistics'].get('commentCount', 'N/A')}")
-            
+
             # Recuperer commentaires
             comments = []
             next_page = None
-            
+
             while len(comments) < limit:
                 try:
                     request = youtube.commentThreads().list(
@@ -568,7 +527,7 @@ def scrape_single_video(video_url: str, limit: int = 100, api_key: str = None, o
                         pageToken=next_page
                     )
                     response = request.execute()
-                    
+
                     for item in response.get('items', []):
                         snippet = item['snippet']['topLevelComment']['snippet']
                         comments.append({
@@ -586,26 +545,21 @@ def scrape_single_video(video_url: str, limit: int = 100, api_key: str = None, o
                             'human_label': None,
                             'scraped_at': datetime.now().isoformat()
                         })
-                    
+
                     next_page = response.get('nextPageToken')
                     if not next_page:
                         break
-                        
+
                 except HttpError as e:
                     if 'commentsDisabled' in str(e):
                         print(f"  Commentaires desactives pour cette video")
                     else:
                         print(f"  Erreur API: {e}")
                     break
-            
+
             print(f"YouTube: {len(comments)} commentaires recuperes")
             return comments
-            
-        except Exception as e:
-            print(f"YouTube API Error: {e}")
-            return []
-    
-    else:
+
         # Fallback Selenium
         print("YouTube: API non disponible, utilisation Selenium...")
         if SELENIUM_OK:
@@ -615,16 +569,17 @@ def scrape_single_video(video_url: str, limit: int = 100, api_key: str = None, o
             options.add_argument('--no-sandbox')
             options.add_argument('--disable-dev-shm-usage')
             options.add_argument('--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36')
-            
             try:
                 driver = webdriver.Chrome(options=options)
                 comments = scrape_video_comments_selenium(driver, video_url, seen_ids, limit)
                 driver.quit()
                 return comments
             except Exception as e:
-                print(f"Selenium Error: {e}")
+                print(f"YouTube Selenium: {e}")
                 return []
-        
+        return []
+    except Exception as e:
+        print(f"YouTube scrape_single_video: {e}")
         return []
 
 
