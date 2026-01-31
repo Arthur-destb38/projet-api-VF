@@ -1,6 +1,6 @@
 # Crypto Sentiment Analysis
 
-> Projet de Master MoSEF 2024-2025 — Université Paris 1 Panthéon-Sorbonne
+> Projet de Master MoSEF 2025-2026 — Université Paris 1 Panthéon-Sorbonne
 
 ## À propos du projet
 
