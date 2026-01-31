@@ -1,0 +1,977 @@
+\documentclass[12pt,a4paper]{article}
+
+% ============ PACKAGES ============
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{enumitem}
+
+% ============ CONFIGURATION ============
+\geometry{margin=2.5cm}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,
+    urlcolor=cyan,
+}
+
+% Style du code
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2,
+    language=Python
+}
+\lstset{style=mystyle}
+
+% En-tête et pied de page
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Master MoSEF 2025-2026}
+\lhead{Crypto Sentiment Analysis}
+\rfoot{Page \thepage}
+
+% ============ DOCUMENT ============
+\begin{document}
+
+% ============ PAGE DE TITRE ============
+\begin{titlepage}
+    \centering
+    \vspace*{2cm}
+    
+    {\scshape\LARGE Université Paris 1 Panthéon-Sorbonne \par}
+    \vspace{0.5cm}
+    {\scshape\Large Master MoSEF \par}
+    {\scshape\normalsize Modélisation Statistique Économique et Financière \par}
+    \vspace{2cm}
+    
+    {\Huge\bfseries Analyse de Sentiment Crypto \par}
+    \vspace{0.5cm}
+    {\Large\itshape Web Scraping, API et Modèles NLP \par}
+    \vspace{2cm}
+    
+    {\Large Projet API -- Année 2025-2026 \par}
+    \vspace{2cm}
+    
+    {\large
+    \textbf{Auteurs :} \\
+    Arthur Destribats \\
+    Niama El Kamal \\
+    Matéo Martin \\
+    }
+    
+    \vfill
+    {\large Janvier 2026 \par}
+\end{titlepage}
+
+% ============ TABLE DES MATIÈRES ============
+\tableofcontents
+\newpage
+
+% ============ INTRODUCTION ============
+\section{Introduction}
+
+\subsection{Contexte}
+
+Le marché des cryptomonnaies est caractérisé par une volatilité extrême et une forte sensibilité au sentiment des investisseurs. Contrairement aux marchés traditionnels, les prix des actifs numériques peuvent fluctuer de plusieurs pourcents en quelques minutes suite à un simple tweet ou une annonce sur les réseaux sociaux. Cette particularité rend l'analyse de sentiment particulièrement pertinente dans ce contexte.
+
+L'hypothèse centrale de ce projet est que le sentiment agrégé des discussions sur les réseaux sociaux contient de l'information exploitable sur les mouvements futurs des prix des cryptomonnaies.
+
+\subsection{Objectifs du projet}
+
+Ce projet vise à construire un pipeline complet d'analyse de sentiment crypto comprenant :
+
+\begin{enumerate}
+    \item \textbf{Collecte de données} : Développement de scrapers pour récupérer les publications en temps réel depuis plusieurs plateformes (Reddit, StockTwits, Twitter/X, Telegram, YouTube, Bluesky, Bitcointalk, GitHub, 4chan).
+    
+    \item \textbf{Analyse de sentiment} : Utilisation de modèles de NLP pré-entraînés (FinBERT et CryptoBERT) pour classifier le sentiment des textes.
+    
+    \item \textbf{API REST} : Exposition des fonctionnalités via une API FastAPI permettant l'intégration dans d'autres systèmes.
+    
+    \item \textbf{Interface utilisateur} : Création d'un dashboard interactif pour la visualisation des résultats.
+\end{enumerate}
+
+\subsection{Sources de données}
+
+Nous avons sélectionné les plateformes suivantes pour leur pertinence dans l'écosystème crypto :
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Plateforme} & \textbf{Type} & \textbf{Intérêt} \\
+\midrule
+Reddit & Forum & Discussions communautaires approfondies \\
+StockTwits & Microblogging financier & Labels humains Bullish/Bearish \\
+Twitter/X & Microblogging & Actualités en temps réel \\
+Telegram & Messagerie & Canaux crypto spécialisés (Whale Alert) \\
+YouTube & Vidéo & Commentaires et analyses d'experts \\
+Bluesky & Microblogging décentralisé & Alternative à Twitter, API ouverte \\
+Bitcointalk & Forum historique & Communauté crypto originelle (depuis 2009) \\
+GitHub & Plateforme de code & Discussions techniques sur les projets \\
+4chan /biz/ & Forum anonyme & Sentiment retail non filtré \\
+\bottomrule
+\end{tabular}
+\caption{Plateformes ciblées pour la collecte de données}
+\end{table}
+
+% ============ CRYPTOMONNAIES ============
+\section{Cryptomonnaies ciblées}
+
+\subsection{Présentation des actifs}
+
+Le projet se concentre sur les principales cryptomonnaies par capitalisation boursière. Ces actifs ont été sélectionnés pour leur liquidité, leur couverture médiatique et la richesse des discussions les concernant sur les réseaux sociaux.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{llp{8cm}}
+\toprule
+\textbf{Crypto} & \textbf{Symbole} & \textbf{Caractéristiques} \\
+\midrule
+Bitcoin & BTC & Première cryptomonnaie (2009), réserve de valeur, consensus Proof-of-Work \\
+Ethereum & ETH & Plateforme de smart contracts, transition vers Proof-of-Stake (2022) \\
+Solana & SOL & Blockchain haute performance (~65k tx/s), smart contracts \\
+Cardano & ADA & Approche académique, développement peer-reviewed \\
+\bottomrule
+\end{tabular}
+\caption{Cryptomonnaies couvertes par le projet}
+\end{table}
+
+% ============ MODÈLES NLP ============
+\section{Modèles d'Analyse de Sentiment}
+
+\subsection{Architecture BERT}
+
+Les modèles utilisés dans ce projet sont basés sur l'architecture BERT (Bidirectional Encoder Representations from Transformers) introduite par Devlin et al. en 2018. BERT utilise un mécanisme d'attention bidirectionnelle permettant de capturer le contexte complet d'un mot dans une phrase.
+
+\subsection{FinBERT}
+
+FinBERT est un modèle développé par Prosus AI, spécialisé dans l'analyse de sentiment financier. Il a été pré-entraîné sur un corpus de news financières et fine-tuné pour la classification de sentiment.
+
+\begin{itemize}
+    \item \textbf{Modèle} : \texttt{ProsusAI/finbert}
+    \item \textbf{Classes} : Positive, Negative, Neutral
+    \item \textbf{Longueur maximale} : 512 tokens
+\end{itemize}
+
+Le score de sentiment est calculé comme la différence entre les probabilités positive et négative :
+\begin{equation}
+    score = P(positive) - P(negative)
+\end{equation}
+
+\subsection{CryptoBERT}
+
+CryptoBERT, développé par ElKulako, est spécifiquement entraîné sur des données crypto. Il a été pré-entraîné sur 3.2 millions de publications provenant de StockTwits, Reddit, Twitter et Telegram.
+
+\begin{itemize}
+    \item \textbf{Modèle} : \texttt{ElKulako/cryptobert}
+    \item \textbf{Classes} : Bullish, Bearish, Neutral
+    \item \textbf{Longueur maximale} : 128 tokens
+    \item \textbf{Corpus d'entraînement} : 3.2M posts crypto
+\end{itemize}
+
+L'avantage de CryptoBERT est sa compréhension du jargon crypto (\textit{``HODL''}, \textit{``to the moon''}, \textit{``diamond hands''}, etc.).
+
+\subsection{Implémentation}
+
+L'implémentation utilise la bibliothèque Hugging Face Transformers :
+
+\begin{lstlisting}[caption={Classe SentimentAnalyzer}]
+class SentimentAnalyzer:
+    def __init__(self, model_name: str = "finbert"):
+        self.model_name = model_name.lower()
+        
+        if self.model_name == "finbert":
+            self.tokenizer, self.model = load_finbert()
+        elif self.model_name == "cryptobert":
+            self.tokenizer, self.model = load_cryptobert()
+    
+    def analyze(self, text: str) -> dict:
+        inputs = self.tokenizer(text, return_tensors="pt", 
+                                truncation=True, max_length=512)
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+            probs = torch.softmax(outputs.logits, dim=-1)
+        # Calcul du score et du label...
+        return {"score": score, "label": label, "probs": probs}
+\end{lstlisting}
+
+% ============ WEB SCRAPING ============
+\section{Méthodologie de Web Scraping}
+
+Le web scraping est au cœur de ce projet. Chaque plateforme présentant des défis techniques spécifiques, nous avons développé des scrapers adaptés utilisant différentes approches.
+
+\subsection{Principes généraux}
+
+Tous nos scrapers respectent les principes suivants :
+
+\begin{itemize}
+    \item \textbf{Rate limiting} : Délais entre les requêtes pour éviter les bans
+    \item \textbf{User-Agent rotatif} : Simulation de navigateurs variés
+    \item \textbf{Gestion des erreurs} : Fallbacks et retry automatiques
+    \item \textbf{Comportement humain} : Délais aléatoires, scrolls progressifs
+\end{itemize}
+
+% ==================== REDDIT ====================
+\subsection{Reddit Scraper}
+
+Reddit offre une API JSON publique accessible via \texttt{old.reddit.com}. Nous proposons deux méthodes de scraping.
+
+\subsubsection{Méthode HTTP (recommandée)}
+
+Cette méthode exploite l'endpoint JSON de Reddit qui reste accessible malgré les restrictions de l'API officielle (devenue payante en 2023).
+
+\begin{lstlisting}[caption={Scraping Reddit via HTTP}]
+def scrape_reddit_http(subreddit: str, limit: int = 100) -> list:
+    posts = []
+    after = None
+    headers = {"User-Agent": "Mozilla/5.0 Chrome/120.0.0.0"}
+    base_hosts = ["https://old.reddit.com", "https://www.reddit.com"]
+    base = base_hosts[0]
+    
+    while len(posts) < limit:
+        url = f"{base}/r/{subreddit}/new.json"
+        params = {"limit": min(100, limit - len(posts))}
+        if after:
+            params["after"] = after
+        
+        try:
+            resp = requests.get(url, headers=headers, 
+                               params=params, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            # Fallback vers www.reddit.com si old echoue
+            if base == base_hosts[0]:
+                base = base_hosts[1]
+                continue
+            break
+        
+        for child in data["data"]["children"]:
+            d = child["data"]
+            posts.append({
+                "id": d["id"],
+                "title": d["title"],
+                "text": d.get("selftext", ""),
+                "score": d["score"],
+                "created_utc": d["created_utc"],
+                "source": "reddit",
+                "method": "http"
+            })
+        
+        after = data["data"]["after"]
+        if not after:
+            break
+        time.sleep(0.3)  # Rate limiting
+    
+    return posts[:limit]
+\end{lstlisting}
+
+\textbf{Caractéristiques :}
+\begin{itemize}
+    \item Limite : jusqu'à 1000 posts
+    \item Vitesse : rapide (~1-5 secondes)
+    \item Pagination via le paramètre \texttt{after}
+    \item Fallback automatique de \texttt{old.reddit.com} vers \texttt{www.reddit.com}
+\end{itemize}
+
+\subsubsection{Méthode Selenium}
+
+Pour les cas où l'API JSON est bloquée, nous utilisons Selenium pour simuler un navigateur :
+
+\begin{lstlisting}[caption={Configuration anti-détection Selenium}]
+options = Options()
+options.add_argument("--headless=new")
+options.add_argument("--disable-blink-features=AutomationControlled")
+options.add_experimental_option("excludeSwitches", 
+                                ["enable-automation"])
+
+user_agents = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/120.0.0.0",
+]
+options.add_argument(f"--user-agent={random.choice(user_agents)}")
+\end{lstlisting}
+
+Le scraper Selenium parse le HTML de \texttt{old.reddit.com} et gère la pagination en cliquant sur les boutons "Next" :
+
+\begin{lstlisting}[caption={Parsing HTML Reddit avec BeautifulSoup}]
+soup = BeautifulSoup(driver.page_source, "lxml")
+elements = soup.select("div.thing.link")
+
+for elem in elements:
+    if "stickied" in elem.get("class", []):
+        continue  # Ignorer les posts epingles
+    
+    title_el = elem.select_one("a.title")
+    title = title_el.get_text(strip=True) if title_el else ""
+    
+    score_el = elem.select_one("div.score.unvoted")
+    score_txt = score_el.get_text(strip=True) if score_el else "0"
+    
+    time_el = elem.select_one("time")
+    timestamp = time_el.get("datetime", "") if time_el else ""
+\end{lstlisting}
+
+% ==================== STOCKTWITS ====================
+\subsection{StockTwits Scraper}
+
+StockTwits est protégé par Cloudflare, rendant impossible l'accès via HTTP simple. Nous utilisons exclusivement Selenium.
+
+\subsubsection{Intérêt de StockTwits}
+
+L'avantage majeur de StockTwits est que les utilisateurs peuvent taguer leurs messages comme \textbf{Bullish} ou \textbf{Bearish}. Ces labels humains constituent un \textit{ground truth} précieux pour valider nos modèles de sentiment.
+
+\subsubsection{Extraction des données JSON embarquées}
+
+StockTwits utilise Next.js et embarque les données dans un script \texttt{\_\_NEXT\_DATA\_\_}. Cette méthode est plus fiable que le parsing HTML :
+
+\begin{lstlisting}[caption={Extraction JSON depuis StockTwits}]
+def extract_json_data(driver, limit: int) -> list:
+    soup = BeautifulSoup(driver.page_source, "lxml")
+    script = soup.find("script", {"id": "__NEXT_DATA__"})
+    
+    if not script or not script.string:
+        return []
+    
+    data = json.loads(script.string)
+    page_props = data["props"]["pageProps"]
+    
+    # Plusieurs chemins possibles selon la version
+    messages = (
+        page_props.get("stream", {}).get("messages", []) or
+        page_props.get("messages", []) or
+        page_props.get("initialMessages", [])
+    )
+    
+    posts = []
+    for msg in messages[:limit]:
+        # Sentiment humain (Bullish/Bearish/None)
+        sentiment = msg.get("entities", {}).get("sentiment", {})
+        human_label = sentiment.get("basic")
+        
+        likes_data = msg.get("likes", {})
+        likes = likes_data.get("total", 0) if isinstance(likes_data, dict) else 0
+        
+        posts.append({
+            "id": str(msg["id"]),
+            "title": msg["body"],
+            "human_label": human_label,
+            "score": likes,
+            "created_utc": msg.get("created_at"),
+            "source": "stocktwits",
+            "method": "selenium"
+        })
+    
+    return posts
+\end{lstlisting}
+
+\subsubsection{Configuration anti-détection}
+
+StockTwits détecte les navigateurs automatisés. Nous utilisons plusieurs techniques d'évasion :
+
+\begin{lstlisting}[caption={Configuration Chrome anti-détection pour StockTwits}]
+options = Options()
+# Profil temporaire pour eviter les conflits
+temp_profile = tempfile.mkdtemp(prefix="selenium_stocktwits_")
+options.add_argument(f"--user-data-dir={temp_profile}")
+
+options.add_argument("--headless=new")
+options.add_argument("--disable-blink-features=AutomationControlled")
+options.add_experimental_option("excludeSwitches", 
+                                ["enable-automation"])
+
+# Masquer la propriete webdriver
+driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+    "source": "Object.defineProperty(navigator,'webdriver',"
+              "{get:()=>undefined});"
+})
+\end{lstlisting}
+
+\subsubsection{Scroll amélioré avec comportement humain}
+
+Pour charger plus de posts, nous simulons un scroll humain avec mouvements de souris :
+
+\begin{lstlisting}[caption={Scroll avec comportement humain}]
+def enhanced_scroll_and_parse(driver, posts, seen_ids, limit):
+    actions = ActionChains(driver)
+    last_height = driver.execute_script(
+        "return document.body.scrollHeight")
+    
+    while len(posts) < limit:
+        # Scroll progressif (pas d'un coup)
+        scroll_amount = random.randint(300, 600)
+        driver.execute_script(
+            f"window.scrollBy(0, {scroll_amount});")
+        
+        # Simuler mouvement de souris
+        try:
+            body = driver.find_element(By.TAG_NAME, "body")
+            actions.move_to_element(body).perform()
+        except:
+            pass
+        
+        time.sleep(random.uniform(0.8, 1.5))
+        
+        # Parser les nouveaux posts
+        new_posts = parse_html_posts(driver.page_source, seen_ids)
+        posts.extend(new_posts)
+        
+        # Verifier si on peut encore scroller
+        new_height = driver.execute_script(
+            "return document.body.scrollHeight")
+        if new_height == last_height:
+            break
+        last_height = new_height
+    
+    return posts
+\end{lstlisting}
+
+% ==================== TWITTER ====================
+\subsection{Twitter/X Scraper}
+
+Twitter/X représente le défi technique le plus complexe. Depuis 2023, l'API est devenue payante (~42k\$/an) et les protections anti-bot sont renforcées régulièrement.
+
+\subsubsection{Limitations actuelles}
+
+\textbf{Note importante :} Le scraping de Twitter/X est devenu extrêmement difficile. La plateforme a considérablement renforcé ses systèmes de détection anti-bot au cours de l'année 2025-2026. Nos tentatives d'automatisation via Selenium avec login sont désormais systématiquement bloquées, malgré les techniques d'évasion employées (masquage de la propriété \texttt{webdriver}, délais humains, rotation de User-Agent).
+
+Nous avons également testé Nitter, un frontend alternatif open-source qui permettait d'accéder aux tweets sans authentification. Cependant, la plupart des instances Nitter sont désormais hors service ou bloquées par X, rendant cette approche peu fiable en production.
+
+\subsubsection{Approche retenue : profils publics}
+
+La seule méthode partiellement fonctionnelle consiste à scraper les profils publics de comptes crypto influents. Cette approche reste fragile et peut cesser de fonctionner à tout moment :
+
+\begin{lstlisting}[caption={Scraping de profils publics Twitter}]
+def scrape_twitter_profile(username: str, limit: int = 50) -> list:
+    options = Options()
+    options.add_argument("--headless=new")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    
+    driver = webdriver.Chrome(options=options)
+    
+    try:
+        url = f"https://x.com/{username}"
+        driver.get(url)
+        human_delay(5, 8)
+        
+        # Detecter les blocages
+        block_reason = detect_twitter_block_reason(driver.page_source)
+        if block_reason:
+            return []
+        
+        posts = []
+        # Scroll et extraction des tweets visibles...
+        
+        return posts
+        
+    finally:
+        driver.quit()
+\end{lstlisting}
+
+\subsubsection{Détection des blocages}
+
+\begin{lstlisting}[caption={Détection des blocages Twitter}]
+def detect_twitter_block_reason(page_source: str) -> str | None:
+    low = page_source.lower()
+    
+    if "account suspended" in low:
+        return "Compte suspendu par X."
+    if "temporarily restricted" in low:
+        return "Compte temporairement restreint."
+    if "try again later" in low:
+        return "Rate limit atteint. Attendez 1-2h."
+    if "blocked" in low and "automated" in low:
+        return "Activite automatisee detectee."
+    
+    return None
+\end{lstlisting}
+
+% ==================== TELEGRAM ====================
+\subsection{Telegram Scraper}
+
+Telegram offre une interface web publique pour les canaux (\texttt{t.me/s/channel}), accessible sans authentification. C'est particulièrement utile pour les canaux crypto comme \textbf{Whale Alert} qui signalent les gros mouvements de fonds.
+
+\subsubsection{Méthode simple (requests)}
+
+Pour les petits volumes (< 30 messages), une simple requête HTTP suffit :
+
+\begin{lstlisting}[caption={Scraping Telegram simple}]
+def scrape_telegram_simple(channel: str, limit: int = 30) -> list:
+    url = f"https://t.me/s/{channel}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 Chrome/120.0.0.0",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    
+    response = requests.get(url, headers=headers, timeout=15)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    
+    messages = []
+    wraps = soup.find_all('div', class_='tgme_widget_message_wrap')
+    
+    for wrap in wraps[:limit]:
+        text_div = wrap.find('div', class_='tgme_widget_message_text')
+        if not text_div:
+            continue
+        
+        text = text_div.get_text(strip=True)
+        
+        # Recuperer le nombre de vues
+        views_span = wrap.find('span', class_='tgme_widget_message_views')
+        views = parse_views(views_span.get_text(strip=True)) \
+                if views_span else 0
+        
+        # Recuperer la date
+        time_tag = wrap.find('time', class_='time')
+        date_str = time_tag['datetime'] if time_tag else None
+        
+        messages.append({
+            "text": clean_text(text),
+            "date": date_str,
+            "views": views,
+            "channel": channel,
+            "source": "telegram"
+        })
+    
+    return messages
+\end{lstlisting}
+
+\subsubsection{Méthode avec pagination (AJAX)}
+
+Pour les grands volumes, Telegram charge les anciens messages via AJAX avec le paramètre \texttt{before}. Nous simulons ce comportement :
+
+\begin{lstlisting}[caption={Pagination Telegram via paramètre before}]
+def scrape_telegram_paginated(channel: str, max_messages: int = 200,
+                              start_date: str = None, 
+                              end_date: str = None) -> list:
+    base_url = f"https://t.me/s/{channel}"
+    all_messages = []
+    before_id = None
+    page = 0
+    max_pages = (max_messages // 20) + 50
+    
+    while len(all_messages) < max_messages and page < max_pages:
+        # Construire l'URL avec pagination
+        if before_id:
+            url = f"{base_url}?before={before_id}"
+        else:
+            url = base_url
+        
+        response = requests.get(url, headers=headers, timeout=15)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        wraps = soup.find_all('div', class_='tgme_widget_message_wrap')
+        if not wraps:
+            break
+        
+        oldest_id = None
+        for wrap in wraps:
+            msg_div = wrap.find('div', class_='tgme_widget_message')
+            if msg_div and msg_div.get('data-post'):
+                post_id = msg_div['data-post'].split('/')[-1]
+                oldest_id = post_id  # Garder le plus ancien
+            
+            # Parser le message...
+            text_div = wrap.find('div', class_='tgme_widget_message_text')
+            if text_div:
+                all_messages.append({...})
+        
+        before_id = oldest_id  # Pour la page suivante
+        page += 1
+        time.sleep(0.8)  # Rate limiting
+    
+    return all_messages[:max_messages]
+\end{lstlisting}
+
+\subsubsection{Canaux crypto populaires}
+
+\begin{lstlisting}[caption={Canaux Telegram crypto}]
+CRYPTO_CHANNELS = {
+    "whale_alert_io": "Whale Alert - Gros mouvements",
+    "bitcoinnews": "Bitcoin News",
+    "cryptonewscom": "CryptoNews",
+    "Bitcoin": "Bitcoin Official",
+    "ethereum": "Ethereum",
+}
+\end{lstlisting}
+
+% ==================== YOUTUBE ====================
+\subsection{YouTube Scraper}
+
+YouTube est une source précieuse pour l'analyse de sentiment crypto : les commentaires sous les vidéos d'analyse contiennent des opinions détaillées. Nous utilisons l'API officielle YouTube Data v3.
+
+\subsubsection{Méthode API}
+
+L'API YouTube Data v3 est gratuite jusqu'à 10 000 unités/jour, ce qui est suffisant pour notre usage :
+
+\begin{lstlisting}[caption={Scraping YouTube via l'API officielle}]
+from googleapiclient.discovery import build
+
+def scrape_youtube_api(query: str, limit: int = 50, 
+                       api_key: str = None) -> list:
+    youtube = build('youtube', 'v3', developerKey=api_key)
+    
+    # 1. Rechercher des videos
+    search_response = youtube.search().list(
+        q=query,
+        type='video',
+        part='id,snippet',
+        maxResults=min(25, limit // 2),
+        order='relevance',
+        relevanceLanguage='en'
+    ).execute()
+    
+    video_ids = [item['id']['videoId'] 
+                 for item in search_response.get('items', [])]
+    
+    # 2. Recuperer les commentaires de chaque video
+    all_comments = []
+    for video_id in video_ids:
+        comments = get_video_comments_api(youtube, video_id, 
+                                          limit // len(video_ids))
+        all_comments.extend(comments)
+    
+    return all_comments[:limit]
+\end{lstlisting}
+
+\subsubsection{Récupération des commentaires avec pagination}
+
+L'API YouTube pagine les commentaires. Nous gérons cela avec \texttt{nextPageToken} :
+
+\begin{lstlisting}[caption={Pagination des commentaires YouTube}]
+def get_video_comments_api(youtube, video_id: str, limit: int, 
+                           order: str = "relevance") -> list:
+    comments = []
+    next_page_token = None
+    
+    while len(comments) < limit:
+        request = youtube.commentThreads().list(
+            part='snippet',
+            videoId=video_id,
+            maxResults=min(100, limit - len(comments)),
+            order=order,
+            textFormat='plainText',
+            pageToken=next_page_token
+        )
+        response = request.execute()
+        
+        for item in response.get('items', []):
+            snippet = item['snippet']['topLevelComment']['snippet']
+            
+            comments.append({
+                'id': item['id'],
+                'title': snippet.get('textDisplay', '')[:500],
+                'text': snippet.get('textDisplay', ''),
+                'score': snippet.get('likeCount', 0),
+                'created_utc': snippet.get('publishedAt'),
+                'author': snippet.get('authorDisplayName'),
+                'video_id': video_id,
+                'source': 'youtube',
+                'method': 'api'
+            })
+        
+        next_page_token = response.get('nextPageToken')
+        if not next_page_token:
+            break
+        time.sleep(0.1)
+    
+    return comments
+\end{lstlisting}
+
+% ==================== SYNTHESE ====================
+\subsection{Synthèse des méthodes de scraping}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lllll}
+\toprule
+\textbf{Plateforme} & \textbf{Méthode} & \textbf{Limite} & \textbf{Vitesse} & \textbf{Statut} \\
+\midrule
+Reddit & HTTP (JSON) & 1000 & Rapide & Fonctionnel \\
+Reddit & Selenium & 200 & Lent & Fonctionnel \\
+StockTwits & Selenium & 1000 & Moyen & Fonctionnel \\
+Twitter/X & Profils publics & 100 & Lent & Instable \\
+Telegram & HTTP & 30 & Rapide & Fonctionnel \\
+Telegram & HTTP + Pagination & 2000 & Moyen & Fonctionnel \\
+YouTube & API v3 & 500 & Rapide & Fonctionnel \\
+\bottomrule
+\end{tabular}
+\caption{Comparaison des méthodes de scraping}
+\end{table}
+
+% ============ ARCHITECTURE API ============
+\section{Architecture de l'API}
+
+\subsection{Choix technologiques}
+
+L'API est construite avec \textbf{FastAPI}, un framework Python moderne offrant :
+
+\begin{itemize}
+    \item Documentation automatique (Swagger/OpenAPI)
+    \item Validation des données avec Pydantic
+    \item Support asynchrone natif
+    \item Performances élevées
+\end{itemize}
+
+\subsection{Endpoints principaux}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Endpoint} & \textbf{Méthode} & \textbf{Description} \\
+\midrule
+\texttt{/scrape} & POST & Scraper une plateforme \\
+\texttt{/sentiment} & POST & Analyser le sentiment de textes \\
+\texttt{/analyze} & POST & Pipeline complet (scrape + sentiment) \\
+\texttt{/compare/models} & POST & Comparer FinBERT vs CryptoBERT \\
+\texttt{/prices/\{crypto\}} & GET & Prix actuel via CoinGecko \\
+\texttt{/storage/stats} & GET & Statistiques des données stockées \\
+\texttt{/telegram/channels} & GET & Liste des canaux Telegram \\
+\bottomrule
+\end{tabular}
+\caption{Principaux endpoints de l'API}
+\end{table}
+
+\subsection{Modèles de données}
+
+\begin{lstlisting}[caption={Modèles Pydantic pour la validation}]
+class SourceEnum(str, Enum):
+    reddit = "reddit"
+    stocktwits = "stocktwits"
+    telegram = "telegram"
+    twitter = "twitter"
+
+class ScrapeRequest(BaseModel):
+    source: SourceEnum = Field(default=SourceEnum.reddit)
+    method: MethodEnum = Field(default=MethodEnum.http)
+    symbol: str = Field(default="Bitcoin")
+    limit: int = Field(default=50, ge=10, le=2000)
+    start_date: str | None = None
+    end_date: str | None = None
+
+class AnalyzeRequest(BaseModel):
+    source: SourceEnum = Field(default=SourceEnum.reddit)
+    model: ModelEnum = Field(default=ModelEnum.finbert)
+    crypto_id: str = Field(default="bitcoin")
+    limit: int = Field(default=50, ge=10, le=1000)
+\end{lstlisting}
+
+% ============ STOCKAGE ============
+\section{Persistance des données}
+
+\subsection{Architecture de stockage}
+
+Les données scrapées sont automatiquement persistées pour permettre des analyses ultérieures. Le système supporte deux backends :
+
+\begin{itemize}
+    \item \textbf{PostgreSQL (cloud)} : Base de données partagée via Supabase pour le déploiement en production
+    \item \textbf{SQLite (local)} : Fallback automatique pour le développement local
+\end{itemize}
+
+\begin{lstlisting}[caption={Connexion avec fallback automatique}]
+def _get_connection():
+    """Retourne PostgreSQL (cloud) ou SQLite (local)."""
+    if POSTGRES_AVAILABLE:
+        conn = _ensure_postgres_storage()
+        if conn:
+            return conn, "postgres"
+    
+    # Fallback SQLite
+    return _ensure_sqlite_storage(), "sqlite"
+\end{lstlisting}
+
+\subsection{Schéma de la base de données}
+
+Chaque post scrapé est stocké avec les métadonnées suivantes :
+
+\begin{lstlisting}[caption={Schéma de la table posts}]
+CREATE TABLE posts (
+    uid VARCHAR(255) PRIMARY KEY,  -- Hash unique
+    id TEXT,                        -- ID original du post
+    source TEXT,                    -- reddit, stocktwits, twitter...
+    method TEXT,                    -- http, selenium...
+    title TEXT,                     -- Titre ou texte principal
+    text TEXT,                      -- Contenu additionnel
+    score INTEGER,                  -- Likes, upvotes...
+    created_utc TEXT,               -- Date de publication
+    human_label TEXT,               -- Bullish/Bearish (StockTwits)
+    author TEXT,
+    scraped_at TIMESTAMP            -- Date de scraping
+)
+\end{lstlisting}
+
+\subsection{Dédoublonnage}
+
+Pour éviter les doublons, chaque post reçoit un identifiant unique (UID) calculé par hash SHA-1 :
+
+\begin{lstlisting}[caption={Calcul de l'UID unique}]
+def _post_uid(post: dict, source: str, method: str) -> str:
+    post_id = str(post.get("id") or "").strip()
+    if post_id:
+        base = f"{source}:{method}:{post_id}"
+    else:
+        # Fallback si pas d'ID
+        base = f"{source}:{method}:{post.get('title', '')}:" \
+               f"{post.get('created_utc', '')}"
+    return hashlib.sha1(base.encode("utf-8")).hexdigest()
+\end{lstlisting}
+
+L'insertion utilise \texttt{ON CONFLICT DO NOTHING} (PostgreSQL) ou \texttt{INSERT OR IGNORE} (SQLite) pour ignorer les doublons silencieusement.
+
+\subsection{Export des données}
+
+Les données peuvent être exportées en CSV ou JSON pour analyse externe :
+
+\begin{lstlisting}[caption={Export des données}]
+def export_to_csv(source: str = None, method: str = None) -> str:
+    posts = get_all_posts(source=source, method=method)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"scrapes_{source}_{timestamp}.csv"
+    export_path = os.path.join(DATA_DIR, "exports", filename)
+    
+    with open(export_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=posts[0].keys())
+        writer.writeheader()
+        writer.writerows(posts)
+    
+    return export_path
+\end{lstlisting}
+
+% ============ INTERFACE DASHBOARD ============
+\section{Dashboard interactif}
+
+\subsection{Présentation}
+
+L'interface utilisateur a été développée avec Streamlit, un framework Python permettant de créer rapidement des applications web interactives. Le dashboard permet aux utilisateurs d'exécuter des requêtes de scraping, visualiser les données collectées et analyser les résultats de sentiment sans écrire de code. Les visualisations sont générées avec Plotly pour offrir des graphiques interactifs (histogrammes, séries temporelles, distributions).
+
+\subsection{Organisation du dashboard}
+
+L'application est organisée en plusieurs pages accessibles via la barre latérale :
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lp{9cm}}
+\toprule
+\textbf{Page} & \textbf{Fonctionnalité} \\
+\midrule
+Accueil & Vue d'ensemble du projet, prix en temps réel des cryptos, statistiques de la base de données \\
+Scraping & Interface pour lancer des requêtes de scraping sur les différentes plateformes avec choix de la méthode et des paramètres \\
+Données & Exploration de la base de données avec filtres (source, date, crypto), visualisation des posts et export CSV/JSON \\
+Analyse & Exécution de l'analyse de sentiment sur les données scrapées avec affichage des résultats \\
+Documentation & Présentation technique du projet et guide d'utilisation \\
+\bottomrule
+\end{tabular}
+\caption{Pages du dashboard}
+\end{table}
+
+\subsection{Mise en cache des modèles}
+
+Les modèles FinBERT et CryptoBERT sont volumineux (~500 Mo chacun). Le framework permet de les charger une seule fois en mémoire grâce à un système de cache, évitant ainsi un rechargement à chaque interaction utilisateur :
+
+\begin{lstlisting}[caption={Mise en cache des modèles NLP}]
+@st.cache_resource
+def load_models():
+    """Charge les modeles une seule fois (cache)."""
+    finbert_tok, finbert_model = load_finbert()
+    cryptobert_tok, cryptobert_model = load_cryptobert()
+    return {
+        "finbert": (finbert_tok, finbert_model),
+        "cryptobert": (cryptobert_tok, cryptobert_model)
+    }
+\end{lstlisting}
+
+% ============ RÉSULTATS ============
+\section{Résultats et Discussion}
+
+\subsection{Validation des modèles avec StockTwits}
+
+L'avantage de StockTwits est de fournir des labels humains (\textit{Bullish}/\textit{Bearish}), permettant de calculer l'accuracy de nos modèles.
+
+\textbf{Observations typiques} :
+\begin{itemize}
+    \item CryptoBERT surpasse généralement FinBERT de 10-15\% sur les données crypto
+    \item FinBERT reste plus adapté pour les news financières générales
+    \item Les deux modèles ont des difficultés avec le sarcasme et l'ironie
+\end{itemize}
+
+\subsection{Défis techniques rencontrés}
+
+\begin{enumerate}
+    \item \textbf{Protections anti-bot} : Twitter et StockTwits nécessitent des techniques avancées d'évasion (masquage de la propriété \texttt{webdriver}, délais humains, rotation de User-Agent)
+    
+    \item \textbf{Changements fréquents} : Les plateformes modifient régulièrement leurs structures HTML et leurs APIs
+    
+    \item \textbf{Rate limiting} : Équilibre délicat entre vitesse de scraping et risque de ban
+    
+    \item \textbf{Twitter/X} : La plateforme a considérablement renforcé ses protections en 2025-2026, rendant le scraping automatisé quasi-impossible. Nous avons testé plusieurs approches (login automatisé, Nitter) sans succès durable.
+    
+    \item \textbf{Cloudflare} : StockTwits utilise Cloudflare, nécessitant Selenium obligatoirement
+\end{enumerate}
+
+\subsection{Limites du projet}
+
+\begin{itemize}
+    \item \textbf{Données temps réel uniquement} : Le scraping ne permet pas un historique long terme
+    \item \textbf{Biais de sélection} : Les utilisateurs actifs ne sont pas représentatifs de tous les investisseurs
+    \item \textbf{Latence} : Certains scrapers (StockTwits, Twitter) sont lents (10-30s)
+    \item \textbf{Dépendance aux structures} : Un changement de HTML peut casser un scraper
+\end{itemize}
+
+% ============ CONCLUSION ============
+\section{Conclusion}
+
+Ce projet démontre la faisabilité d'un pipeline complet d'analyse de sentiment crypto, de la collecte à la visualisation. Les principaux apports sont :
+
+\begin{enumerate}
+    \item Une architecture modulaire de scrapers adaptés à chaque plateforme (Reddit, StockTwits, Twitter, Telegram, YouTube)
+    \item L'intégration de modèles NLP spécialisés (CryptoBERT) surpassant les modèles génériques
+    \item Une API REST documentée et une interface utilisateur intuitive
+    \item La possibilité de valider les modèles grâce aux labels humains StockTwits
+\end{enumerate}
+
+% ============ RÉFÉRENCES ============
+\section{Références}
+
+\begin{enumerate}
+    \item Devlin, J., Chang, M.-W., Lee, K., \& Toutanova, K. (2018). \textit{BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding}. arXiv:1810.04805.
+    
+    \item ElKulako. (2023). \textit{CryptoBERT: A Pre-trained Language Model for Cryptocurrency Sentiment Analysis}. IEEE Intelligent Systems, 38(4).
+    
+    \item Prosus AI. \textit{FinBERT: Financial Sentiment Analysis with BERT}. \url{https://huggingface.co/ProsusAI/finbert}
+    
+    \item Kraaijeveld, O., \& De Smedt, J. (2020). \textit{The predictive power of public Twitter sentiment for forecasting cryptocurrency prices}. Journal of Computational Finance.
+\end{enumerate}
+
+\end{document}
