@@ -75,6 +75,23 @@ Les actifs supportés incluent notamment Bitcoin, Ethereum, Solana, Cardano, Dog
 
 ## Installation
 
+### Démarrage rapide (recommandé)
+
+```bash
+git clone https://github.com/Arthur-destb38/Projet_API.git
+cd Projet_API
+
+# Lancer le script d'installation et de démarrage
+./run.sh
+```
+
+Le script `run.sh` :
+1. Vérifie que Python 3.10+ est installé
+2. Crée le fichier `.env` avec les variables par défaut
+3. Crée un environnement virtuel `.venv`
+4. Installe toutes les dépendances
+5. Lance l'application Streamlit
+
 ### Prérequis
 
 - Python 3.10 à 3.14
